@@ -1,9 +1,11 @@
 package wayffunctionaltest
 
 import (
+    "C"
 	"crypto/tls"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"github.com/wayf-dk/gosaml"
 	"io"
 	"io/ioutil"
@@ -11,205 +13,80 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 )
 
 var (
-	attributestmt = []byte(`<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"
-                xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"
-                xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                >
-        <saml:AttributeStatement>
-            <saml:Attribute Name="cn"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">Mads Freek Petersen</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="eduPersonEntitlement"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">https://wayf.dk/kanja/admin</saml:AttributeValue>
-                <saml:AttributeValue xsi:type="xs:string">https://wayf.dk/orphanage/admin</saml:AttributeValue>
-                <saml:AttributeValue xsi:type="xs:string">https://wayf.dk/vo/admin</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="organizationName"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">WAYF Where Are You From</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="preferredLanguage"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">da</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="mail"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">freek@wayf.dk</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="eduPersonPrincipalName"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">gikcaswid@orphanage.wayf.dk</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="gn"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">Mads Freek</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="sn"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">Petersen</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="eduPersonPrimaryAffiliation"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">member</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="eduPersonAssurance"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">1</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="schacHomeOrganization"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">orphanage.wayf.dk</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="schacHomeOrganizationType"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">urn:mace:terena.org:schac:homeOrganizationType:int:NRENAffiliate</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="eduPersonTargetedID"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">WAYF-DK-a462971438f09f28b0cf806965a5b5461376815b</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="urn:oid:2.5.4.3"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">Mads Freek Petersen</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.7"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">https://wayf.dk/kanja/admin</saml:AttributeValue>
-                <saml:AttributeValue xsi:type="xs:string">https://wayf.dk/orphanage/admin</saml:AttributeValue>
-                <saml:AttributeValue xsi:type="xs:string">https://wayf.dk/vo/admin</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="urn:oid:2.5.4.10"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">WAYF Where Are You From</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="urn:oid:2.16.840.1.113730.3.1.39"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">da</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="urn:oid:0.9.2342.19200300.100.1.3"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">freek@wayf.dk</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.6"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">gikcaswid@orphanage.wayf.dk</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="urn:oid:2.5.4.42"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">Mads Freek</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="urn:oid:2.5.4.4"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">Petersen</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.5"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">member</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.11"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">1</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="urn:oid:1.3.6.1.4.1.25178.1.2.9"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">orphanage.wayf.dk</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="urn:oid:1.3.6.1.4.1.25178.1.2.10"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">urn:mace:terena.org:schac:homeOrganizationType:int:NRENAffiliate</saml:AttributeValue>
-            </saml:Attribute>
-            <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.10"
-                            NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"
-                            >
-                <saml:AttributeValue xsi:type="xs:string">WAYF-DK-a462971438f09f28b0cf806965a5b5461376815b</saml:AttributeValue>
-            </saml:Attribute>
-        </saml:AttributeStatement>
-    </samlp:Response>`)
+	_ = log.Printf // For debugging; delete when done.
+	_ = fmt.Printf
 )
 
-type Testparams struct{
-    spmd, idpmd, hubmd, testidpmd *gosaml.Xp
-    cookiejar map[string]map[string]*http.Cookie
-    idpentityID string
-    usescope bool
-    usedoubleproxy bool
-    resolv map[string]string
-    initialrequest *gosaml.Xp
-    newresponse *gosaml.Xp
-    resp *http.Response
-    responsebody []byte
-    err error
-    logrequests bool
+// Testparams keeps the info necessary to do a full SAMLRequest -> SAMLResponse roundtrip
+// 1st call SSOCreateInitialRequest - then do the possible mods of the request - introduce errors if thats what's going to be tested.
+// 2ndly call SSOSendRequest - the result is a SAMLResponse which again can be modified
+// 3rdly call SSOSendResponse - and analyze the final resulting SAMLResponse
+type Testparams struct {
+	spmd, idpmd, hubidpmd, hubspmd, testidpmd, testidpviabirkmd *gosaml.Xp
+	cookiejar                                                   map[string]map[string]*http.Cookie
+	idpentityID                                                 string
+	usescope                                                    bool
+	usedoubleproxy                                              bool
+	resolv                                                      map[string]string
+	initialrequest                                              *gosaml.Xp
+	newresponse                                                 *gosaml.Xp
+	resp                                                        *http.Response
+	responsebody                                                []byte
+	err                                                         error
+	logrequests, encryptresponse                                bool
+	privatekey                                                  string
+	privatekeypw                                                string
+	certificate	                                                string
+	hashalgorithm                                               string
+	attributestmt                                               *gosaml.Xp
 }
 
+// SSOCreateInitialRequest creates a SAMLRequest given the tp Testparams
 func (tp *Testparams) SSOCreateInitialRequest() {
 
 	tp.idpentityID = tp.idpmd.Query1(nil, "@entityID")
 	tp.usedoubleproxy = strings.HasPrefix(tp.idpentityID, "https://birk")
 
-    firstidpmd := tp.idpmd
+	firstidpmd := tp.idpmd
 	if !tp.usedoubleproxy {
-		firstidpmd = tp.hubmd
+		firstidpmd = tp.hubidpmd
 	}
 
 	tp.initialrequest = gosaml.NewAuthnRequest(gosaml.IdAndTiming{time.Now(), 4 * time.Minute, 4 * time.Hour, "", ""}, tp.spmd, firstidpmd)
 
-    // add scoping element if we want to bypass discovery
+	// add scoping element if we want to bypass discovery
 	if tp.usescope {
 		tp.initialrequest.QueryDashP(nil, "./samlp:Scoping/samlp:IDPList/samlp:IDPEntry/@ProviderID", tp.idpentityID, nil)
 	}
 	return
 }
 
+// SSOSendRequest sends a SAMLRequest to the @Destination and follows the redirects to the test idp
+// If it meets a discovery service it reponds with the testidp
 func (tp *Testparams) SSOSendRequest() {
+	tp.SSOSendRequest1()
+	if tp.err != nil || tp.resp.StatusCode == 500 {
+		return
+	}
+	tp.SSOSendRequest2()
+}
+
+func (tp *Testparams) SSOSendRequest1() {
 
 	tp.cookiejar = make(map[string]map[string]*http.Cookie)
-	samlrequest := base64.StdEncoding.EncodeToString(gosaml.Deflate(tp.initialrequest.Pp()))
 
-	u, _ := url.Parse(tp.initialrequest.Query1(nil, "@Destination"))
-	q := u.Query()
-	q.Set("SAMLRequest", samlrequest)
-	u.RawQuery = q.Encode()
-
+	u := gosaml.SAMLRequest2Url(tp.initialrequest)
 	// initial request - to hub or birk
 	tp.resp, tp.responsebody, tp.err = tp.sendRequest(u, tp.resolv[u.Host], "GET", "", tp.cookiejar)
 	// Errors from BIRK is 500 + text/plain
 	if tp.err != nil || tp.resp.StatusCode == 500 {
-	    return
+		return
 	}
 
 	u, _ = tp.resp.Location()
@@ -223,78 +100,97 @@ func (tp *Testparams) SSOSendRequest() {
 		u.RawQuery = q.Encode()
 		tp.resp, _, _ = tp.sendRequest(u, tp.resolv[u.Host], "GET", "", tp.cookiejar)
 	}
+}
 
+func (tp *Testparams) SSOSendRequest2() {
+	u, _ := tp.resp.Location()
 
-    // if going via birk we now got a scoped request to the hub
+	// if going via birk we now got a scoped request to the hub
 	if tp.usedoubleproxy {
-		u, _ = tp.resp.Location()
 		tp.resp, _, _ = tp.sendRequest(u, tp.resolv[u.Host], "GET", "", tp.cookiejar)
+		u, _ = tp.resp.Location()
 	}
 
-    // We still expect to be redirected
-	u, _ = tp.resp.Location()
+	// We still expect to be redirected
 	// if we are not at our final IdP something is rotten
-	if u.Host != "this.is.not.a.valid.idp" {
+
+	testidp, _ := url.Parse(tp.testidpmd.Query1(nil, "@entityID"))
+	if u.Host != testidp.Host {
 		// Errors from HUB is 302 to https://wayf.wayf.dk/displayerror.php ... which is a 500 with html content
 		u, _ = tp.resp.Location()
 		tp.resp, tp.responsebody, tp.err = tp.sendRequest(u, tp.resolv[u.Host], "GET", "", tp.cookiejar)
 		return
 	}
 
-    // get the SAMLRequest
-	query = u.Query()
-    req, _ := base64.StdEncoding.DecodeString(query["SAMLRequest"][0])
+	// get the SAMLRequest
+	query := u.Query()
+	req, _ := base64.StdEncoding.DecodeString(query["SAMLRequest"][0])
 	authnrequest := gosaml.NewXp(gosaml.Inflate(req))
-	sourceresponse := gosaml.NewXp(attributestmt)
 
-    // create a response
-    tp.newresponse = gosaml.NewResponse(gosaml.IdAndTiming{time.Now(), 4 * time.Minute, 4 * time.Hour, "", ""}, tp.testidpmd, tp.hubmd, authnrequest, sourceresponse)
+	// create a response
+	tp.newresponse = gosaml.NewResponse(gosaml.IdAndTiming{time.Now(), 4 * time.Minute, 4 * time.Hour, "", ""}, tp.testidpmd, tp.hubspmd, authnrequest, tp.attributestmt)
 
-    // and sign it
-    assertion := tp.newresponse.Query(nil, "saml:Assertion[1]")[0]
-    privatekey, _ := ioutil.ReadFile("/etc/ssl/wayf/signing/this.is.not.a.valid.idp.key")
+	// and sign it
+	assertion := tp.newresponse.Query(nil, "saml:Assertion[1]")[0]
 
-	tp.newresponse.Sign(assertion, string(privatekey), os.Getenv("PW"),  "sha1")
+	// use cert to calculate key name
+	tp.newresponse.Sign(assertion, tp.privatekey, tp.privatekeypw, tp.certificate, tp.hashalgorithm)
 
-    return
+	if tp.encryptresponse {
+	    tp.newresponse.Encrypt(assertion, gosaml.EncryptionCertfromMD(tp.hubspmd))
+	}
+	return
 }
 
+// SSOSendResponse POSTs a SAML response and follows the POSTs back to the orignal requester
+// It answers yes to the possible WAYF consent page it meets along the way
+// If it encounters an error page it returns immediately
 func (tp *Testparams) SSOSendResponse() {
-
-    // and POST it to the hub
-	acs := tp.newresponse.Query1(nil, "@Destination")
-    data := url.Values{}
-    data.Set("SAMLResponse", base64.StdEncoding.EncodeToString([]byte(tp.newresponse.Pp())))
-
-    u, _ := url.Parse(acs)
-    tp.resp, tp.responsebody, tp.err = tp.sendRequest(u, tp.resolv[u.Host], "POST", data.Encode(), tp.cookiejar)
-
-    u, _ = tp.resp.Location()
-
-    if strings.Contains(u.Path, "displayerror.php") {
-        tp.resp, tp.responsebody, tp.err = tp.sendRequest(u, tp.resolv[u.Host], "GET", "", tp.cookiejar)
-        return
-    }
-    // and now for some consent
-    if strings.Contains(u.Path, "getconsent.php") {
-        u.RawQuery = u.RawQuery + "&yes=1"
-        tp.resp, tp.responsebody, tp.err = tp.sendRequest(u, tp.resolv[u.Host], "GET", "", tp.cookiejar)
-    }
-
-    // if going via birk we have to POST it again
-    if tp.usedoubleproxy {
-        response := gosaml.NewHtmlXp(tp.responsebody)
-        action := response.Query1(nil, "//@action")
-        responsebodyvalue := response.Query1(nil, `//input[@name="SAMLResponse"]/@value`)
-        data := url.Values{}
-        data.Set("SAMLResponse", responsebodyvalue)
-        u, _ = url.Parse(action)
-        tp.resp, tp.responsebody, tp.err = tp.sendRequest(u, tp.resolv[u.Host], "POST", data.Encode(), tp.cookiejar)
-    }
-    // last POST doesn't actually get POSTed - we don't have a real SP ...
-    return
+	tp.SSOSendResponse1()
+	tp.SSOSendResponse2()
 }
 
+func (tp *Testparams) SSOSendResponse1() {
+	// and POST it to the hub
+	acs := tp.newresponse.Query1(nil, "@Destination")
+	data := url.Values{}
+	data.Set("SAMLResponse", base64.StdEncoding.EncodeToString([]byte(tp.newresponse.X2s())))
+
+	u, _ := url.Parse(acs)
+	tp.resp, tp.responsebody, tp.err = tp.sendRequest(u, tp.resolv[u.Host], "POST", data.Encode(), tp.cookiejar)
+
+	if u, _ = tp.resp.Location(); u == nil {
+		return
+	}
+
+	if tp.resp.StatusCode == 500 {
+		return
+	}
+
+	if strings.Contains(u.Path, "displayerror.php") {
+		tp.resp, tp.responsebody, tp.err = tp.sendRequest(u, tp.resolv[u.Host], "GET", "", tp.cookiejar)
+		return
+	}
+	// and now for some consent
+	if strings.Contains(u.Path, "getconsent.php") {
+		u.RawQuery = u.RawQuery + "&yes=1"
+		tp.resp, tp.responsebody, tp.err = tp.sendRequest(u, tp.resolv[u.Host], "GET", "", tp.cookiejar)
+	}
+	tp.newresponse = gosaml.Html2SAMLResponse(tp.responsebody)
+}
+
+func (tp *Testparams) SSOSendResponse2() {
+	// if going via birk we have to POST it again
+	if tp.usedoubleproxy {
+		tp.SSOSendResponse1()
+	}
+	// last POST doesn't actually get POSTed - we don't have a real SP ...
+	return
+}
+
+// SendRequest sends a http request - GET or POST using the supplied url, server, method and cookies
+// It updates the cookies and returns a http.Response and a posssible response body and error
+// The server parameter contains the dns name of the actual server, which should respond to the host part of the url
 func (tp *Testparams) sendRequest(url *url.URL, server, method, body string, cookies map[string]map[string]*http.Cookie) (resp *http.Response, responsebody []byte, err error) {
 	if server == "" {
 		server = url.Host + ":443"
@@ -330,8 +226,8 @@ func (tp *Testparams) sendRequest(url *url.URL, server, method, body string, coo
 
 	resp, err = client.Do(req)
 	if err != nil && !strings.HasSuffix(err.Error(), "redirect-not-allowed") {
-	    // we need to do the redirect ourselves so a self inflicted redirect "error" is not an error
-	    return
+		// we need to do the redirect ourselves so a self inflicted redirect "error" is not an error
+		return
 	}
 
 	location, _ := resp.Location()
@@ -340,7 +236,7 @@ func (tp *Testparams) sendRequest(url *url.URL, server, method, body string, coo
 		loc = location.Host + location.Path
 	}
 	if tp.logrequests {
-	    log.Printf("%-4s %-70s %s %-15s %s\n", req.Method, server+req.URL.Path, resp.Proto, resp.Status, loc)
+		log.Printf("%-4s %-70s %s %-15s %s\n", req.Method, server+req.URL.Path, resp.Proto, resp.Status, loc)
 	}
 	setcookies := resp.Cookies()
 	for _, cookie := range setcookies {
@@ -350,16 +246,12 @@ func (tp *Testparams) sendRequest(url *url.URL, server, method, body string, coo
 		cookies[url.Host][cookie.Name] = cookie
 	}
 
-    // We can't get to the body if we got a redirect pseudo error above
-    if err == nil {
-	    responsebody, err = ioutil.ReadAll(resp.Body)
-	    defer resp.Body.Close()
+	// We can't get to the body if we got a redirect pseudo error above
+	if err == nil {
+		responsebody, err = ioutil.ReadAll(resp.Body)
+		defer resp.Body.Close()
 	}
 	// we need to nullify the damn redirec-not-allowed error from above
 	err = nil
 	return
-}
-
-func ExampleJustForKeepingLogImported() {
-	log.Println("ExampleJustForKeepingLogImported")
 }

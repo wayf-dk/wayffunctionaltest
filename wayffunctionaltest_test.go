@@ -1,235 +1,259 @@
 package wayffunctionaltest
 
+// https://wiki.wayf.dk/display/WAYKI/Design+for+WAYF+functional+tests
+
 import (
+	"fmt"
 	"github.com/wayf-dk/gosaml"
+	"io/ioutil"
 	"log"
 	"os"
-	"testing"
+	"strconv"
+	"strings"
+	"sync"
 )
 
 type mod struct {
-    path, value string
+	path, value string
 }
 type mods []mod
 
 var (
 	mdq = "https://phph.wayf.dk/MDQ/"
+	_   = log.Printf // For debugging; delete when done.
 
-	spmetadata, idpmetadata, hubmetadata, testidpmetadata, testidpviabirkmetadata *gosaml.Xp
+	wg sync.WaitGroup
 
-    wayfmdxml = []byte(`<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" xmlns:shibmd="urn:mace:shibboleth:metadata:1.0" entityID="https://wayf.wayf.dk">
-  <md:IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">
-    <md:Extensions>
-      <mdui:UIInfo xmlns:mdui="urn:oasis:names:tc:SAML:metadata:ui">
-        <mdui:Description xml:lang="da">WAYF - den danske identitetsfederation for forskning og uddannelse</mdui:Description>
-        <mdui:Description xml:lang="en">WAYF - The Danish identity federation for research and higher education</mdui:Description>
-        <mdui:DisplayName xml:lang="da">WAYF - Where Are You From</mdui:DisplayName>
-        <mdui:DisplayName xml:lang="en">WAYF - Where Are You From</mdui:DisplayName>
-      </mdui:UIInfo>
-      <shibmd:Scope regexp="false">adm.aau.dk@aau.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">aub.aau.dk@aau.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">civil.aau.dk@aau.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">create.aau.dk@aau.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">es.aau.dk@aau.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">hst.aau.dk@aau.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">id.aau.dk@aau.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">its.aau.dk@aau.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">learning.aau.dk@aau.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">m-tech.aau.dk@aau.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">plan.aau.dk@aau.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">sbi.aau.dk@aau.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">staff.aau.dk@aau.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">student.aau.dk@aau.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">kb.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">hi.is</shibmd:Scope>
-      <shibmd:Scope regexp="false">ruc.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">orphanage.wayf.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">ucl.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">aau.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">viauc.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">ucc.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">drlund-gym.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">iha.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">sdu.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">itu.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">aip.itsf.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">gg.itsf.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">lg.itsf.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">mg.itsf.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">sosur.itsf.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">sska.itsf.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">sss.itsf.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">its.itsf.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">sikker-adgang.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">ibc.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">natmus.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">rungsted-gym.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">ucsj.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">sosuc.cphwest.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">dab.minibib.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">ism.minibib.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">fbo.minibib.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">fsv.minibib.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">vfc.minibib.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">dsl.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">zbc.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">frsgym.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">cbs.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">uniit.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">dskd.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">ku.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">kristne-gym.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">dsn.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">vordingborg-gym.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">dmjx.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">hasseris-gym.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">apoteket.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">erhvervsakademiaarhus.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">kadk.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">dtu.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">ucn.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">frhavn-gym.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">sde.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">eal.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">hrs.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">sceu.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">vgtgym.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">odense.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">au.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">knord.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">vibkat.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">vghf.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">eucnord.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">phmetropol.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">handelsskolen.com</shibmd:Scope>
-      <shibmd:Scope regexp="false">cphbusiness.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">kea.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">eadania.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">dansidp.stads.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">umit.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">campusvejle.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">rosborg-gym.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">fhavnhs.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">ah.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">basyd.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">statsbiblioteket.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">eamv.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">aams.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">regionsjaelland.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">fms.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">smk.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">msk.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">drcmr.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">simac.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">ucsyd.dk</shibmd:Scope>
-      <shibmd:Scope regexp="false">this.is.not.a.valid.idp</shibmd:Scope>
-    </md:Extensions>
-    <md:KeyDescriptor use="signing">
-      <ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
-        <ds:X509Data>
-          <ds:X509Certificate>MIIE3TCCA8WgAwIBAgISESFgDbqp6YXwPvILGKAnrUDtMA0GCSqGSIb3DQEBBQUAMFcxCzAJBgNVBAYTAkJFMRkwFwYDVQQKExBHbG9iYWxTaWduIG52LXNhMS0wKwYDVQQDEyRHbG9iYWxTaWduIERvbWFpbiBWYWxpZGF0aW9uIENBIC0gRzIwHhcNMTIwMTA0MDkzNTU0WhcNMTcwMTAzMDkzNTU0WjBHMQswCQYDVQQGEwJESzEhMB8GA1UECxMYRG9tYWluIENvbnRyb2wgVmFsaWRhdGVkMRUwEwYDVQQDEwx3YXlmLndheWYuZGswggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDAosqmcujXhA49vHQLLTKZxFTz3guMRnwHvUxz5vvuMPYVTGl+fXPdq9ULhkNc1jlCr4+pFOwLdy9zkuAn8dK7grQEaU58K0uF4MTyKixFnPvU3806roL8PnrmUQ2t8y76U9jzsk/B3Ggi5pVqhOktHpZyzz1yBpE14R+/DPzHrpKIFJY4N2uzoBrcEAsJY6aTUfIaB/NEpe4BY8sDZ3CTuU3tWUfhdlZESYsmngdnHD6k0HUKti9F43UM6JyN6fz7T70JlHAcTHzYKhjtPLcWG8lWFqNtry7fCYC5SlKn4zmyifoASxRoH3EuxtE/Fmmt+M6I83kg3H0R1b8PHimfAgMBAAGjggGxMIIBrTAOBgNVHQ8BAf8EBAMCBaAwTAYDVR0gBEUwQzBBBgkrBgEEAaAyAQowNDAyBggrBgEFBQcCARYmaHR0cHM6Ly93d3cuZ2xvYmFsc2lnbi5jb20vcmVwb3NpdG9yeS8wFwYDVR0RBBAwDoIMd2F5Zi53YXlmLmRrMAkGA1UdEwQCMAAwHQYDVR0lBBYwFAYIKwYBBQUHAwEGCCsGAQUFBwMCMD8GA1UdHwQ4MDYwNKAyoDCGLmh0dHA6Ly9jcmwuZ2xvYmFsc2lnbi5jb20vZ3MvZ3Nkb21haW52YWxnMi5jcmwwgYgGCCsGAQUFBwEBBHwwejBBBggrBgEFBQcwAoY1aHR0cDovL3NlY3VyZS5nbG9iYWxzaWduLmNvbS9jYWNlcnQvZ3Nkb21haW52YWxnMi5jcnQwNQYIKwYBBQUHMAGGKWh0dHA6Ly9vY3NwMi5nbG9iYWxzaWduLmNvbS9nc2RvbWFpbnZhbGcyMB0GA1UdDgQWBBS44PHFNUdj1NTiqkjShHfvW50SIzAfBgNVHSMEGDAWgBSWrfqwW7mDZCp2whyKadpC3P79KDANBgkqhkiG9w0BAQUFAAOCAQEAjqwtcRjT+gYKMhgwpJ4MNpL6W80efrcMDdWnZUJzN081ht0dcQqvdAVjkWylEQbbS1LXc9OZecRJGR1vxBzS7bq0lRauPuYodzOsDzP4cEW/W+PvWIEIpm5yIBZ31P7VnRpaRwmeff8OlhDOvM4+wdovRvIpLgyeyW05R2i4DenI8juCaWXNG+CATj35gW3uh/LD9DBzpZDoQ41/5yJPZUuiHfZtnW0M7oVnhidn5sT319Xiag3Jlqe7dx1D+b0oZVDTbwrECOdROTcbOkbGsr4VleBcTtL5RoF4cDokYB6LpIDmSMiBV6DztPcrPC/ERS/tEBMbfMWVAus4f0SvdQ==</ds:X509Certificate>
-        </ds:X509Data>
-      </ds:KeyInfo>
-    </md:KeyDescriptor>
-    <md:KeyDescriptor use="encryption">
-      <ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
-        <ds:X509Data>
-          <ds:X509Certificate>MIIE3TCCA8WgAwIBAgISESFgDbqp6YXwPvILGKAnrUDtMA0GCSqGSIb3DQEBBQUAMFcxCzAJBgNVBAYTAkJFMRkwFwYDVQQKExBHbG9iYWxTaWduIG52LXNhMS0wKwYDVQQDEyRHbG9iYWxTaWduIERvbWFpbiBWYWxpZGF0aW9uIENBIC0gRzIwHhcNMTIwMTA0MDkzNTU0WhcNMTcwMTAzMDkzNTU0WjBHMQswCQYDVQQGEwJESzEhMB8GA1UECxMYRG9tYWluIENvbnRyb2wgVmFsaWRhdGVkMRUwEwYDVQQDEwx3YXlmLndheWYuZGswggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDAosqmcujXhA49vHQLLTKZxFTz3guMRnwHvUxz5vvuMPYVTGl+fXPdq9ULhkNc1jlCr4+pFOwLdy9zkuAn8dK7grQEaU58K0uF4MTyKixFnPvU3806roL8PnrmUQ2t8y76U9jzsk/B3Ggi5pVqhOktHpZyzz1yBpE14R+/DPzHrpKIFJY4N2uzoBrcEAsJY6aTUfIaB/NEpe4BY8sDZ3CTuU3tWUfhdlZESYsmngdnHD6k0HUKti9F43UM6JyN6fz7T70JlHAcTHzYKhjtPLcWG8lWFqNtry7fCYC5SlKn4zmyifoASxRoH3EuxtE/Fmmt+M6I83kg3H0R1b8PHimfAgMBAAGjggGxMIIBrTAOBgNVHQ8BAf8EBAMCBaAwTAYDVR0gBEUwQzBBBgkrBgEEAaAyAQowNDAyBggrBgEFBQcCARYmaHR0cHM6Ly93d3cuZ2xvYmFsc2lnbi5jb20vcmVwb3NpdG9yeS8wFwYDVR0RBBAwDoIMd2F5Zi53YXlmLmRrMAkGA1UdEwQCMAAwHQYDVR0lBBYwFAYIKwYBBQUHAwEGCCsGAQUFBwMCMD8GA1UdHwQ4MDYwNKAyoDCGLmh0dHA6Ly9jcmwuZ2xvYmFsc2lnbi5jb20vZ3MvZ3Nkb21haW52YWxnMi5jcmwwgYgGCCsGAQUFBwEBBHwwejBBBggrBgEFBQcwAoY1aHR0cDovL3NlY3VyZS5nbG9iYWxzaWduLmNvbS9jYWNlcnQvZ3Nkb21haW52YWxnMi5jcnQwNQYIKwYBBQUHMAGGKWh0dHA6Ly9vY3NwMi5nbG9iYWxzaWduLmNvbS9nc2RvbWFpbnZhbGcyMB0GA1UdDgQWBBS44PHFNUdj1NTiqkjShHfvW50SIzAfBgNVHSMEGDAWgBSWrfqwW7mDZCp2whyKadpC3P79KDANBgkqhkiG9w0BAQUFAAOCAQEAjqwtcRjT+gYKMhgwpJ4MNpL6W80efrcMDdWnZUJzN081ht0dcQqvdAVjkWylEQbbS1LXc9OZecRJGR1vxBzS7bq0lRauPuYodzOsDzP4cEW/W+PvWIEIpm5yIBZ31P7VnRpaRwmeff8OlhDOvM4+wdovRvIpLgyeyW05R2i4DenI8juCaWXNG+CATj35gW3uh/LD9DBzpZDoQ41/5yJPZUuiHfZtnW0M7oVnhidn5sT319Xiag3Jlqe7dx1D+b0oZVDTbwrECOdROTcbOkbGsr4VleBcTtL5RoF4cDokYB6LpIDmSMiBV6DztPcrPC/ERS/tEBMbfMWVAus4f0SvdQ==</ds:X509Certificate>
-        </ds:X509Data>
-      </ds:KeyInfo>
-    </md:KeyDescriptor>
-    <md:SingleLogoutService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://wayf.wayf.dk/saml2/idp/SingleLogoutService.php"/>
-    <md:NameIDFormat>urn:oasis:names:tc:SAML:2.0:nameid-format:transient</md:NameIDFormat>
-    <md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://wayf.wayf.dk/saml2/idp/SSOService.php"/>
-  </md:IDPSSODescriptor> <md:SPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:1.1:protocol urn:oasis:names:tc:SAML:2.0:protocol">
-   <md:KeyDescriptor use="signing">
-     <ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
-       <ds:X509Data>
-         <ds:X509Certificate>MIIE3TCCA8WgAwIBAgISESFgDbqp6YXwPvILGKAnrUDtMA0GCSqGSIb3DQEBBQUAMFcxCzAJBgNVBAYTAkJFMRkwFwYDVQQKExBHbG9iYWxTaWduIG52LXNhMS0wKwYDVQQDEyRHbG9iYWxTaWduIERvbWFpbiBWYWxpZGF0aW9uIENBIC0gRzIwHhcNMTIwMTA0MDkzNTU0WhcNMTcwMTAzMDkzNTU0WjBHMQswCQYDVQQGEwJESzEhMB8GA1UECxMYRG9tYWluIENvbnRyb2wgVmFsaWRhdGVkMRUwEwYDVQQDEwx3YXlmLndheWYuZGswggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDAosqmcujXhA49vHQLLTKZxFTz3guMRnwHvUxz5vvuMPYVTGl+fXPdq9ULhkNc1jlCr4+pFOwLdy9zkuAn8dK7grQEaU58K0uF4MTyKixFnPvU3806roL8PnrmUQ2t8y76U9jzsk/B3Ggi5pVqhOktHpZyzz1yBpE14R+/DPzHrpKIFJY4N2uzoBrcEAsJY6aTUfIaB/NEpe4BY8sDZ3CTuU3tWUfhdlZESYsmngdnHD6k0HUKti9F43UM6JyN6fz7T70JlHAcTHzYKhjtPLcWG8lWFqNtry7fCYC5SlKn4zmyifoASxRoH3EuxtE/Fmmt+M6I83kg3H0R1b8PHimfAgMBAAGjggGxMIIBrTAOBgNVHQ8BAf8EBAMCBaAwTAYDVR0gBEUwQzBBBgkrBgEEAaAyAQowNDAyBggrBgEFBQcCARYmaHR0cHM6Ly93d3cuZ2xvYmFsc2lnbi5jb20vcmVwb3NpdG9yeS8wFwYDVR0RBBAwDoIMd2F5Zi53YXlmLmRrMAkGA1UdEwQCMAAwHQYDVR0lBBYwFAYIKwYBBQUHAwEGCCsGAQUFBwMCMD8GA1UdHwQ4MDYwNKAyoDCGLmh0dHA6Ly9jcmwuZ2xvYmFsc2lnbi5jb20vZ3MvZ3Nkb21haW52YWxnMi5jcmwwgYgGCCsGAQUFBwEBBHwwejBBBggrBgEFBQcwAoY1aHR0cDovL3NlY3VyZS5nbG9iYWxzaWduLmNvbS9jYWNlcnQvZ3Nkb21haW52YWxnMi5jcnQwNQYIKwYBBQUHMAGGKWh0dHA6Ly9vY3NwMi5nbG9iYWxzaWduLmNvbS9nc2RvbWFpbnZhbGcyMB0GA1UdDgQWBBS44PHFNUdj1NTiqkjShHfvW50SIzAfBgNVHSMEGDAWgBSWrfqwW7mDZCp2whyKadpC3P79KDANBgkqhkiG9w0BAQUFAAOCAQEAjqwtcRjT+gYKMhgwpJ4MNpL6W80efrcMDdWnZUJzN081ht0dcQqvdAVjkWylEQbbS1LXc9OZecRJGR1vxBzS7bq0lRauPuYodzOsDzP4cEW/W+PvWIEIpm5yIBZ31P7VnRpaRwmeff8OlhDOvM4+wdovRvIpLgyeyW05R2i4DenI8juCaWXNG+CATj35gW3uh/LD9DBzpZDoQ41/5yJPZUuiHfZtnW0M7oVnhidn5sT319Xiag3Jlqe7dx1D+b0oZVDTbwrECOdROTcbOkbGsr4VleBcTtL5RoF4cDokYB6LpIDmSMiBV6DztPcrPC/ERS/tEBMbfMWVAus4f0SvdQ==</ds:X509Certificate>
-       </ds:X509Data>
-     </ds:KeyInfo>
-   </md:KeyDescriptor>
-   <md:KeyDescriptor use="encryption">
-     <ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
-       <ds:X509Data>
-         <ds:X509Certificate>MIIE3TCCA8WgAwIBAgISESFgDbqp6YXwPvILGKAnrUDtMA0GCSqGSIb3DQEBBQUAMFcxCzAJBgNVBAYTAkJFMRkwFwYDVQQKExBHbG9iYWxTaWduIG52LXNhMS0wKwYDVQQDEyRHbG9iYWxTaWduIERvbWFpbiBWYWxpZGF0aW9uIENBIC0gRzIwHhcNMTIwMTA0MDkzNTU0WhcNMTcwMTAzMDkzNTU0WjBHMQswCQYDVQQGEwJESzEhMB8GA1UECxMYRG9tYWluIENvbnRyb2wgVmFsaWRhdGVkMRUwEwYDVQQDEwx3YXlmLndheWYuZGswggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDAosqmcujXhA49vHQLLTKZxFTz3guMRnwHvUxz5vvuMPYVTGl+fXPdq9ULhkNc1jlCr4+pFOwLdy9zkuAn8dK7grQEaU58K0uF4MTyKixFnPvU3806roL8PnrmUQ2t8y76U9jzsk/B3Ggi5pVqhOktHpZyzz1yBpE14R+/DPzHrpKIFJY4N2uzoBrcEAsJY6aTUfIaB/NEpe4BY8sDZ3CTuU3tWUfhdlZESYsmngdnHD6k0HUKti9F43UM6JyN6fz7T70JlHAcTHzYKhjtPLcWG8lWFqNtry7fCYC5SlKn4zmyifoASxRoH3EuxtE/Fmmt+M6I83kg3H0R1b8PHimfAgMBAAGjggGxMIIBrTAOBgNVHQ8BAf8EBAMCBaAwTAYDVR0gBEUwQzBBBgkrBgEEAaAyAQowNDAyBggrBgEFBQcCARYmaHR0cHM6Ly93d3cuZ2xvYmFsc2lnbi5jb20vcmVwb3NpdG9yeS8wFwYDVR0RBBAwDoIMd2F5Zi53YXlmLmRrMAkGA1UdEwQCMAAwHQYDVR0lBBYwFAYIKwYBBQUHAwEGCCsGAQUFBwMCMD8GA1UdHwQ4MDYwNKAyoDCGLmh0dHA6Ly9jcmwuZ2xvYmFsc2lnbi5jb20vZ3MvZ3Nkb21haW52YWxnMi5jcmwwgYgGCCsGAQUFBwEBBHwwejBBBggrBgEFBQcwAoY1aHR0cDovL3NlY3VyZS5nbG9iYWxzaWduLmNvbS9jYWNlcnQvZ3Nkb21haW52YWxnMi5jcnQwNQYIKwYBBQUHMAGGKWh0dHA6Ly9vY3NwMi5nbG9iYWxzaWduLmNvbS9nc2RvbWFpbnZhbGcyMB0GA1UdDgQWBBS44PHFNUdj1NTiqkjShHfvW50SIzAfBgNVHSMEGDAWgBSWrfqwW7mDZCp2whyKadpC3P79KDANBgkqhkiG9w0BAQUFAAOCAQEAjqwtcRjT+gYKMhgwpJ4MNpL6W80efrcMDdWnZUJzN081ht0dcQqvdAVjkWylEQbbS1LXc9OZecRJGR1vxBzS7bq0lRauPuYodzOsDzP4cEW/W+PvWIEIpm5yIBZ31P7VnRpaRwmeff8OlhDOvM4+wdovRvIpLgyeyW05R2i4DenI8juCaWXNG+CATj35gW3uh/LD9DBzpZDoQ41/5yJPZUuiHfZtnW0M7oVnhidn5sT319Xiag3Jlqe7dx1D+b0oZVDTbwrECOdROTcbOkbGsr4VleBcTtL5RoF4cDokYB6LpIDmSMiBV6DztPcrPC/ERS/tEBMbfMWVAus4f0SvdQ==</ds:X509Certificate>
-       </ds:X509Data>
-     </ds:KeyInfo>
-   </md:KeyDescriptor>
-   <md:SingleLogoutService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://wayf.wayf.dk/module.php/saml/sp/saml2-logout.php/wayf.wayf.dk"/>
-   <md:AssertionConsumerService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="https://wayf.wayf.dk/module.php/saml/sp/saml2-acs.php/wayf.wayf.dk" index="0"/>
-   <md:AttributeConsumingService index="0">
-     <md:ServiceName xml:lang="en">WAYF - Where are you from</md:ServiceName>
-     <md:ServiceName xml:lang="da">WAYF - Where are you from</md:ServiceName>
-     <md:ServiceDescription xml:lang="en">Denmarks Identity Federation for Education and Research.</md:ServiceDescription>
-     <md:ServiceDescription xml:lang="da">Danmarks Identitetsfoederation for Uddannelse og Forskning.</md:ServiceDescription>
-     <md:RequestedAttribute Name="sn" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic" isRequired="true"/>
-     <md:RequestedAttribute Name="gn" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic" isRequired="true"/>
-     <md:RequestedAttribute Name="cn" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic" isRequired="true"/>
-     <md:RequestedAttribute Name="eduPersonPrincipalName" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic" isRequired="true"/>
-     <md:RequestedAttribute Name="mail" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic" isRequired="true"/>
-     <md:RequestedAttribute Name="eduPersonPrimaryAffiliation" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic" isRequired="true"/>
-     <md:RequestedAttribute Name="organizationName" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic" isRequired="true"/>
-     <md:RequestedAttribute Name="eduPersonAssurance" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic" isRequired="true"/>
-     <md:RequestedAttribute Name="schacPersonalUniqueID" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"/>
-     <md:RequestedAttribute Name="schacCountryOfCitizenship" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"/>
-     <md:RequestedAttribute Name="eduPersonScopedAffiliation" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"/>
-     <md:RequestedAttribute Name="preferredLanguage" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"/>
-     <md:RequestedAttribute Name="eduPersonEntitlement" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"/>
-     <md:RequestedAttribute Name="norEduPersonLIN" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic"/>
-   </md:AttributeConsumingService>
- </md:SPSSODescriptor>
- <md:Organization>
-   <md:OrganizationName xml:lang="en">WAYF</md:OrganizationName>
-   <md:OrganizationName xml:lang="da">WAYF</md:OrganizationName>
-   <md:OrganizationDisplayName xml:lang="en">WAYF - Where are you from</md:OrganizationDisplayName>
-   <md:OrganizationDisplayName xml:lang="da">WAYF - Where are you from</md:OrganizationDisplayName>
-   <md:OrganizationURL xml:lang="da">http://wayf.dk/index.php/da</md:OrganizationURL>
-   <md:OrganizationURL xml:lang="en">http://wayf.dk/index.php/en</md:OrganizationURL>
- </md:Organization>
- <md:ContactPerson contactType="technical">
-   <md:GivenName>WAYF</md:GivenName>
-   <md:SurName>Operations</md:SurName>
-   <md:EmailAddress>drift@wayf.dk</md:EmailAddress>
- </md:ContactPerson>
-</md:EntityDescriptor>`)
+	basic2iod = map[string]string{
+		`cn`:                          `urn:oid:2.5.4.3`,
+		`displayName`:                 `urn:oid:2.16.840.1.113730.3.1.241`,
+		`eduPersonAffiliation`:        `urn:oid:1.3.6.1.4.1.5923.1.1.1.1`,
+		`eduPersonAssurance`:          `urn:oid:1.3.6.1.4.1.5923.1.1.1.11`,
+		`eduPersonEntitlement`:        `urn:oid:1.3.6.1.4.1.5923.1.1.1.7`,
+		`eduPersonPrimaryAffiliation`: `urn:oid:1.3.6.1.4.1.5923.1.1.1.5`,
+		`eduPersonPrincipalName`:      `urn:oid:1.3.6.1.4.1.5923.1.1.1.6`,
+		`eduPersonScopedAffiliation`:  `urn:oid:1.3.6.1.4.1.5923.1.1.1.9`,
+		`eduPersonTargetedID`:         `urn:oid:1.3.6.1.4.1.5923.1.1.1.10`,
+		`gn`:                        `urn:oid:2.5.4.42`,
+		`mail`:                      `urn:oid:0.9.2342.19200300.100.1.3`,
+		`norEduPersonLIN`:           `urn:oid:1.3.6.1.4.1.2428.90.1.4`,
+		`organizationName`:          `urn:oid:2.5.4.10`,
+		`preferredLanguage`:         `urn:oid:2.16.840.1.113730.3.1.39`,
+		`schacCountryOfCitizenship`: `urn:oid:1.3.6.1.4.1.25178.1.2.5`,
+		`schacDateOfBirth`:          `urn:oid:1.3.6.1.4.1.25178.1.2.3`,
+		`schacHomeOrganization`:     `urn:oid:1.3.6.1.4.1.25178.1.2.9`,
+		`schacHomeOrganizationType`: `urn:oid:1.3.6.1.4.1.25178.1.2.10`,
+		`schacPersonalUniqueID`:     `urn:oid:1.3.6.1.4.1.25178.1.2.15`,
+		`schacYearOfBirth`:          `urn:oid:1.3.6.1.4.1.25178.1.0.2.3`,
+		`sn`:                        `urn:oid:2.5.4.4`,
+	}
+
+	avals = map[string][]string{
+		"eduPersonPrincipalName": {"joe@orphanage.wayf.dk"},
+		"mail":                       {"joe@example.com"},
+		"gn":                         {`Anton Banton <SamlRequest id="abc">abc</SamlRequest>`},
+		"sn":                         {"Cantonsen"},
+		"norEduPersonLIN":            {"123456789"},
+		"eduPersonScopedAffiliation": {"student@abc.orphanage.wayf.dk", "member@abc.orphanage.wayf.dk"},
+		"preferredLanguage":          {"da"},
+		"eduPersonEntitlement":       {"https://example.com/course101"},
+		"eduPersonAssurance":         {"2"},
+		"organizationName":           {"Orphanage - home for the homeless"},
+		"cn":                         {"Anton Banton Cantonsen"},
+		"eduPersonPrimaryAffiliation": {"student"},
+		"eduPersonAffiliation":        {"alum"},
+		"schacHomeOrganizationType":   {"abc"},
+		"schacPersonalUniqueID":       {"urn:mace:terena.org:schac:personalUniqueID:dk:CPR:2408586234"},
+		"schacCountryOfCitizenship":   {"dk"},
+		"displayName":                 {"Anton Banton Cantonsen"},
+	}
 )
 
-func TestMain(m *testing.M) {
-	spmetadata = gosaml.NewMD(mdq, "EDUGAIN", "https://attribute-viewer.aai.switch.ch/interfederation-test/shibboleth")
-	idpmetadata = gosaml.NewMD(mdq, "EDUGAIN", "https://aai-logon.switch.ch/idp/shibboleth")
-	//wayfmetadata = NewMD(mdq, "wayf-hub-public", "https://wayf.wayf.dk")
-	hubmetadata = gosaml.NewXp(wayfmdxml)
-	testidpmetadata = gosaml.NewMD(mdq, "HUB-OPS", "https://this.is.not.a.valid.idp")
-	testidpviabirkmetadata = gosaml.NewMD(mdq, "BIRK-OPS", "https://birk.wayf.dk/birk.php/this.is.not.a.valid.idp")
-	os.Exit(m.Run())
+func Newtp() (tp *Testparams) {
+	privatekeypw := os.Getenv("PW")
+	if privatekeypw == "" {
+		log.Fatal("no PW environment var")
+	}
+	tp = new(Testparams)
+	tp.spmd = gosaml.NewMD(mdq+"EDUGAIN", "https://attribute-viewer.aai.switch.ch/interfederation-test/shibboleth")
+	tp.hubspmd = gosaml.NewMD("https://wayf.wayf.dk/module.php/saml/sp/metadata.php/wayf.wayf.dk", "")
+	tp.hubidpmd = gosaml.NewMD("https://wayf.wayf.dk/saml2/idp/metadata.php", "")
+	tp.testidpmd = gosaml.NewMD(mdq+"HUB-OPS", "https://this.is.not.a.valid.idp")
+	tp.testidpviabirkmd = gosaml.NewMD(mdq+"BIRK-OPS", "https://birk.wayf.dk/birk.php/this.is.not.a.valid.idp")
+
+	tp.idpmd = tp.testidpmd
+	tp.resolv = map[string]string{"wayf.wayf.dk": "wayf-02.wayf.dk:443", "birk.wayf.dk": "birk-03.wayf.dk:443"}
+	tp.logrequests = true
+	tp.attributestmt = b(avals)
+	tp.hashalgorithm = "sha1"
+
+	keyname, certificate, err := gosaml.KeyNameFromMD(tp.idpmd)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	tp.certificate = certificate
+	pk, err := ioutil.ReadFile("/etc/ssl/wayf/signing/" + keyname + ".key")
+	if err != nil {
+		log.Fatal(err)
+	}
+	tp.privatekey = string(pk)
+	tp.privatekeypw = os.Getenv("PW")
+	return
 }
 
-func ExampleError2() {
-    tp := new(Testparams)
-    tp.spmd = spmetadata.CpXp()
-    tp.testidpmd = testidpmetadata.CpXp()
-    tp.hubmd = hubmetadata.CpXp()
-    tp.resolv = map[string]string{"wayf.wayf.dk": "wayf-03.wayf.dk:443"}
-    metadata := []*gosaml.Xp{testidpmetadata, testidpviabirkmetadata}
-    persistentmods := mods{mod{"/samlp:AuthnRequest/samlp:NameIDPolicy[1]/@Format", "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent"}}
+func b(attrs map[string][]string) (ats *gosaml.Xp) {
+	template := []byte(`<saml:AttributeStatement xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>`)
+	ats = gosaml.NewXp(template)
+	i := 1
+	for attr, attrvals := range attrs {
+		attrelement := ats.QueryDashP(nil, `saml:Attribute[`+strconv.Itoa(i)+`]`, "", nil)
+		ats.QueryDashP(attrelement, "@Name", attr, nil)
+		ats.QueryDashP(attrelement, "@NameFormat", "urn:oasis:names:tc:SAML:2.0:attrname-format:basic", nil)
+		j := 1
+		for _, attrval := range attrvals {
+			attrvalelement := ats.QueryDashP(attrelement, `saml:AttributeValue[`+strconv.Itoa(j)+`]`, attrval, nil)
+			ats.QueryDashP(attrvalelement, "@xsi:type", "xs:string", nil)
+			j = j + 1
+		}
+		i = i + 1
+	}
+	return
+}
 
-    for _, md := range metadata {
-        tp.idpmd = md.CpXp()
-        tp.SSOCreateInitialRequest()
-        for _, change := range persistentmods {
-            tp.initialrequest.QueryDashP(nil, change.path, change.value, nil)
-        }
-        tp.SSOSendRequest()
-        tp.SSOSendResponse()
-        samlresponse := gosaml.Html2SAMLResponse(tp.responsebody)
-        nameidformat := samlresponse.Query1(nil, "//saml:NameID/@Format")
-        nameid := samlresponse.Query1(nil, "//saml:NameID")
-        eptid := samlresponse.Query1(nil, "//saml:Attribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10']/saml:AttributeValue")
+// ExampleError1 tests if the HUB delivers the attributes in the correct format - only one (or none) is allowed
+// Currently if none is specified we deliver both but lie about the format so we say that it is basic even though it actually is uri
+func ExampleAttributeNameFormat() {
+	const (
+		mdcounturi   = "count(//md:RequestedAttribute[@NameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:uri'])"
+		mdcountbasic = "count(//md:RequestedAttribute[@NameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:basic'])"
+		mdcountboth  = "count(//md:RequestedAttribute[not(@NameFormat)])"
+		ascounturi   = "count(//saml:Attribute[@NameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:uri'])"
+		ascountbasic = "count(//saml:Attribute[@NameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:basic'])"
+	)
 
-        log.Printf("via HUB:  %s %s %s\n", nameidformat, nameid, eptid)
-        //log.Printf("%s\n", samlresponse.Pp())
-    }
+	spmd := gosaml.NewMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed", "")
+	uri := spmd.Query1(nil, "//wayf:wayf[wayf:AttributeNameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:uri' and wayf:redirect.validate='']/../../@entityID")
+	urimd := gosaml.NewMD(mdq+"HUB-OPS", uri)
+	basic := spmd.Query1(nil, "//wayf:wayf[wayf:AttributeNameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:basic' and wayf:redirect.validate='']/../../@entityID")
+	basicmd := gosaml.NewMD(mdq+"HUB-OPS", basic)
+	both := spmd.Query1(nil, "//wayf:wayf[wayf:AttributeNameFormat='' and wayf:redirect.validate='']/../../@entityID")
+	bothmd := gosaml.NewMD(mdq+"HUB-OPS", both)
+	// We shall be able to extract a subtree from a EntitiesDescriptor to a new document
+
+	sps := []*gosaml.Xp{urimd, basicmd, bothmd}
+	tp := Newtp()
+	for _, md := range sps {
+		tp.spmd = md.CpXp()
+		tp.SSOCreateInitialRequest()
+		tp.SSOSendRequest()
+		tp.SSOSendResponse()
+		if tp.resp.StatusCode == 500 {
+			response := gosaml.NewHtmlXp(tp.responsebody)
+			fmt.Println(response.Query1(nil, `//a[@id="errormsg"]/text()`))
+			log.Println(response.Query1(nil, `//a[@id="errormsg"]/text()`))
+			continue
+		}
+		samlresponse := gosaml.Html2SAMLResponse(tp.responsebody)
+		requesteduri := md.QueryNumber(nil, mdcounturi) > 0
+		requestedbasic := md.QueryNumber(nil, mdcountbasic) > 0
+		requestedboth := md.QueryNumber(nil, mdcountboth) > 0
+		uricount := samlresponse.QueryNumber(nil, ascounturi) > 0
+		basiccount := samlresponse.QueryNumber(nil, ascountbasic) > 0
+		fmt.Printf("%t %t %t %t %t\n", requesteduri, requestedbasic, requestedboth, uricount, basiccount)
+	}
+	// Output:
+	// true false false true false
+	// false true false false true
+	// false false true false true
+}
+
+// Tests if the persistent nameID is the same from both the hub and BIRK
+func ExamplePersistantNameID() {
+	tp := Newtp()
+
+	metadata := []*gosaml.Xp{tp.testidpmd, tp.testidpviabirkmd}
+	persistentmods := mods{mod{"/samlp:AuthnRequest/samlp:NameIDPolicy[1]/@Format", "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent"}}
+
+	for _, md := range metadata {
+		tp.idpmd = md.CpXp()
+		tp.SSOCreateInitialRequest()
+		for _, change := range persistentmods {
+			tp.initialrequest.QueryDashP(nil, change.path, change.value, nil)
+		}
+		tp.SSOSendRequest1()
+		// now after birk if used - fix the request from BIRK so it requests persistent nameidformat
+		authnrequest := gosaml.Url2SAMLRequest(tp.resp.Location())
+		for _, change := range persistentmods {
+    		authnrequest.QueryDashP(nil, change.path, change.value, nil)
+		}
+		tp.resp.Header.Set("Location", gosaml.SAMLRequest2Url(authnrequest).String())
+
+		tp.SSOSendRequest2()
+		tp.SSOSendResponse()
+		if tp.resp.StatusCode == 500 {
+			response := gosaml.NewHtmlXp(tp.responsebody)
+			fmt.Println(response.Query1(nil, `//a[@id="errormsg"]/text()`))
+			continue
+		}
+		samlresponse := gosaml.Html2SAMLResponse(tp.responsebody)
+		nameidformat := samlresponse.Query1(nil, "//saml:NameID/@Format")
+		nameid := samlresponse.Query1(nil, "//saml:NameID")
+		eptid := samlresponse.Query1(nil, "//saml:Attribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10']/saml:AttributeValue")
+
+		fmt.Printf("%s %s %s\n", nameidformat, nameid, eptid)
+	}
+	// Output:
+	// urn:oasis:names:tc:SAML:2.0:nameid-format:persistent WAYF-DK-d63ec0a98508943252307a0b23df50e8780ec9c5 WAYF-DK-d63ec0a98508943252307a0b23df50e8780ec9c5
+	// urn:oasis:names:tc:SAML:2.0:nameid-format:persistent WAYF-DK-d63ec0a98508943252307a0b23df50e8780ec9c5 WAYF-DK-d63ec0a98508943252307a0b23df50e8780ec9c5
+}
+
+// ExampleSignError1 tests if the HUB and BIRK reacts on errors in the signing of responses and assertions
+func ExampleSignError1() {
+	tp := Newtp()
+
+	tp.idpmd = tp.testidpmd.CpXp()
+	tp.SSOCreateInitialRequest()
+	tp.SSOSendRequest()
+	sig := tp.newresponse.Query(nil, "//ds:SignatureValue")[0]
+	sigvalue := tp.newresponse.Query1(nil, "//ds:SignatureValue")
+	tp.newresponse.NodeSetContent(sig, "x"+sigvalue)
+	tp.SSOSendResponse1()
+
+	response := gosaml.NewHtmlXp(tp.responsebody)
+	fmt.Println(response.Query1(nil, `//a[@id="errormsg"]/text()`))
+
+	tp.idpmd = tp.testidpviabirkmd
+	tp.SSOCreateInitialRequest()
+	tp.SSOSendRequest()
+	tp.SSOSendResponse()
+	tp.newresponse.QueryDashP(nil, "/samlp:Response/saml:Assertion/saml:Issuer", "anton", nil)
+	tp.SSOSendResponse2()
+	fmt.Println(strings.SplitN(string(tp.responsebody), " ", 2)[1])
+	// Output:
+	// Unable to validate Signature
+	// Error verifying signature on incoming SAMLResponse
+}
+
+func xxExamplePerformance() {
+	concurrent := 100
+	for j := 0; j < concurrent; j++ {
+		//go sign()
+		wg.Add(1)
+		go xExamplePerformance(j)
+	}
+	wg.Wait()
 	// Output:
 	// anton
+}
+
+func xExamplePerformance(j int) {
+	requests := 10
+	tp := Newtp()
+	for i := 0; i < requests; i++ {
+		tp.SSOCreateInitialRequest()
+		tp.SSOSendRequest()
+		tp.SSOSendResponse()
+	}
+	wg.Done()
 }
