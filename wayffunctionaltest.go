@@ -137,7 +137,8 @@ func (tp *Testparams) SSOSendRequest2() {
 	tp.newresponse.Sign(assertion, tp.privatekey, tp.privatekeypw, tp.certificate, tp.hashalgorithm)
 
 	if tp.encryptresponse {
-	    tp.newresponse.Encrypt(assertion, gosaml.EncryptionCertfromMD(tp.hubspmd))
+	    _, publickey, _, _ := tp.hubspmd.PublicKeyInfo("encryption")
+	    tp.newresponse.Encrypt(assertion, publickey)
 	}
 	return
 }
