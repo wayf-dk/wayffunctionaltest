@@ -228,7 +228,7 @@ func (tp *Testparams) sendRequest(url *url.URL, server, method, body string, coo
 	resp, err = client.Do(req)
 	if err != nil && !strings.HasSuffix(err.Error(), "redirect-not-allowed") {
 		// we need to do the redirect ourselves so a self inflicted redirect "error" is not an error
-		return
+		log.Fatal(err)
 	}
 
 	location, _ := resp.Location()
