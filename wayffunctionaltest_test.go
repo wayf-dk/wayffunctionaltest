@@ -83,11 +83,11 @@ func Newtp() (tp *Testparams) {
 
 	tp.idpmd = tp.testidpmd
 	tp.resolv = map[string]string{"wayf.wayf.dk": "wayf-02.wayf.dk:443", "birk.wayf.dk": "birk-03.wayf.dk:443"}
-	tp.logrequests = true
+	tp.logrequests = false
 	tp.attributestmt = b(avals)
 	tp.hashalgorithm = "sha1"
 
-	keyname, certificate, err := gosaml.KeyNameFromMD(tp.idpmd)
+	keyname, _, certificate, err := tp.idpmd.PublicKeyInfo("signing")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -171,6 +171,7 @@ func ExampleAttributeNameFormat() {
 // Tests if the persistent nameID is the same from both the hub and BIRK
 func ExamplePersistantNameID() {
 	tp := Newtp()
+    tp.encryptresponse = true
 
 	metadata := []*gosaml.Xp{tp.testidpmd, tp.testidpviabirkmd}
 	persistentmods := mods{mod{"/samlp:AuthnRequest/samlp:NameIDPolicy[1]/@Format", "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent"}}
@@ -233,6 +234,67 @@ func ExampleSignError1() {
 	// Output:
 	// Unable to validate Signature
 	// Error verifying signature on incoming SAMLResponse
+}
+
+// ExampleSignError1 tests if the HUB and BIRK reacts on errors in the signing of responses and assertions
+func ExampleRequestSchemaError() {
+	tp := Newtp()
+
+	tp.idpmd = tp.testidpmd.CpXp()
+	tp.SSOCreateInitialRequest()
+    tp.initialrequest.QueryDashP(nil, "./@IsPassive", "isfalse", nil)
+	tp.SSOSendRequest()
+	response := gosaml.NewHtmlXp(tp.responsebody)
+	fmt.Println(response.Query1(nil, `//a[@id="errormsg"]/text()`))
+
+	tp.idpmd = tp.testidpviabirkmd
+	tp.SSOCreateInitialRequest()
+    tp.initialrequest.QueryDashP(nil, "./@IsPassive", "isfalse", nil)
+	tp.SSOSendRequest()
+	fmt.Println(strings.SplitN(string(tp.responsebody), " ", 2)[1])
+	// Output:
+	// Invalid value of boolean attribute 'IsPassive': 'isfalse'
+	// SAMLMessage does not validate according to schema: , error(s): line: 2:0, error: Element '{urn:oasis:names:tc:SAML:2.0:protocol}AuthnRequest', attribute 'IsPassive': 'isfalse' is not a valid value of the atomic type 'xs:boolean'.
+}
+
+//
+func ExampleNoEPPNError() {
+	tp := Newtp()
+	eppn := tp.attributestmt.Query(nil, `//saml:Attribute[@Name="eduPersonPrincipalName"]`)[0]
+	tp.attributestmt.UnlinkNode(eppn)
+
+	tp.idpmd = tp.testidpmd.CpXp()
+	tp.SSOCreateInitialRequest()
+	tp.SSOSendRequest()
+	tp.SSOSendResponse1()
+	response := gosaml.NewHtmlXp(tp.responsebody)
+	fmt.Println(response.Query1(nil, `//a[@id="errormsg"]/text()`))
+
+    // no need to check birk - it doesn't care
+
+	// Output:
+	// mandatory: eduPersonPrincipalName
+}
+
+func ExampleUnknownSPError() {
+	tp := Newtp()
+
+	tp.idpmd = tp.testidpmd.CpXp()
+	tp.SSOCreateInitialRequest()
+	tp.initialrequest.QueryDashP(nil, "./saml:Issuer", "https://www.example.com/unknownentity", nil)
+	tp.SSOSendRequest()
+	response := gosaml.NewHtmlXp(tp.responsebody)
+	fmt.Println(response.Query1(nil, `//a[@id="errormsg"]/text()`))
+
+	tp.idpmd = tp.testidpviabirkmd
+	tp.SSOCreateInitialRequest()
+	tp.initialrequest.QueryDashP(nil, "./saml:Issuer", "https://www.example.com/unknownentity", nil)
+	tp.SSOSendRequest()
+	fmt.Println(strings.SplitN(string(tp.responsebody), " ", 2)[1])
+
+	// Output:
+	// Metadata not found for entity: https://www.example.com/unknownentity
+	// Metadata for entity: https://www.example.com/unknownentity not found
 }
 
 func xxExamplePerformance() {
