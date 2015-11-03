@@ -49,7 +49,7 @@ var (
 	}
 
 	avals = map[string][]string{
-		"eduPersonPrincipalName": {"joe@orphanage.wayf.dk"},
+		"eduPersonPrincipalName": {"joe@this.is.not.a.valid.idp"},
 		"mail":                       {"joe@example.com"},
 		"gn":                         {`Anton Banton <SamlRequest id="abc">abc</SamlRequest>`},
 		"sn":                         {"Cantonsen"},
@@ -151,7 +151,6 @@ func ExampleAttributeNameFormat() {
 		if tp.resp.StatusCode == 500 {
 			response := gosaml.NewHtmlXp(tp.responsebody)
 			fmt.Println(response.Query1(nil, `//a[@id="errormsg"]/text()`))
-			log.Println(response.Query1(nil, `//a[@id="errormsg"]/text()`))
 			continue
 		}
 		samlresponse := gosaml.Html2SAMLResponse(tp.responsebody)
@@ -205,32 +204,50 @@ func ExamplePersistantNameID() {
 		fmt.Printf("%s %s %s\n", nameidformat, nameid, eptid)
 	}
 	// Output:
-	// urn:oasis:names:tc:SAML:2.0:nameid-format:persistent WAYF-DK-d63ec0a98508943252307a0b23df50e8780ec9c5 WAYF-DK-d63ec0a98508943252307a0b23df50e8780ec9c5
-	// urn:oasis:names:tc:SAML:2.0:nameid-format:persistent WAYF-DK-d63ec0a98508943252307a0b23df50e8780ec9c5 WAYF-DK-d63ec0a98508943252307a0b23df50e8780ec9c5
+    // urn:oasis:names:tc:SAML:2.0:nameid-format:persistent WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77 WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77
+    // urn:oasis:names:tc:SAML:2.0:nameid-format:persistent WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77 WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77
+}
+
+func ExampleFullAttributeset() {
+	hub := DoRunTestHub(nil, nil, nil)
+	attributes := hub.newresponse.Query(nil, "//saml:AttributeStatement")[0]
+	fmt.Println(hub.newresponse.Dump2(attributes))
+	// Output:
+    // <saml:AttributeStatement>
+    //     <saml:Attribute Name="urn:oid:2.5.4.3" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+    //       <saml:AttributeValue xsi:type="xs:string">Anton Banton Cantonsen</saml:AttributeValue>
+    //     </saml:Attribute>
+    //     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.6" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+    //       <saml:AttributeValue xsi:type="xs:string">joe@this.is.not.a.valid.idp</saml:AttributeValue>
+    //     </saml:Attribute>
+    //     <saml:Attribute Name="urn:oid:0.9.2342.19200300.100.1.3" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+    //       <saml:AttributeValue xsi:type="xs:string">joe@example.com</saml:AttributeValue>
+    //     </saml:Attribute>
+    //     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.25178.1.2.9" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+    //       <saml:AttributeValue xsi:type="xs:string">this.is.not.a.valid.idp</saml:AttributeValue>
+    //     </saml:Attribute>
+    //     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.25178.1.2.10" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+    //       <saml:AttributeValue xsi:type="xs:string">urn:mace:terena.org:schac:homeOrganizationType:int:other</saml:AttributeValue>
+    //     </saml:Attribute>
+    //     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.1" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+    //       <saml:AttributeValue xsi:type="xs:string">student</saml:AttributeValue>
+    //       <saml:AttributeValue xsi:type="xs:string">member</saml:AttributeValue>
+    //     </saml:Attribute>
+    //     <saml:Attribute Name="urn:oid:2.16.840.1.113730.3.1.241" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+    //       <saml:AttributeValue xsi:type="xs:string">Anton Banton Cantonsen</saml:AttributeValue>
+    //     </saml:Attribute>
+    //     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.10" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+    //       <saml:AttributeValue xsi:type="xs:string">WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77</saml:AttributeValue>
+    //     </saml:Attribute>
+    //   </saml:AttributeStatement>
 }
 
 // ExampleSignError1 tests if the HUB and BIRK reacts on errors in the signing of responses and assertions
 func ExampleSignError1() {
-	tp := Newtp()
+	responsemods := mods{mod{"//ds:SignatureValue", "+ 1234"}}
+	_ = DoRunTestHub(nil, nil, responsemods)
+	_ = DoRunTestBirk(nil, nil, nil, responsemods)
 
-	tp.idpmd = tp.testidpmd.CpXp()
-	tp.SSOCreateInitialRequest()
-	tp.SSOSendRequest()
-	sig := tp.newresponse.Query(nil, "//ds:SignatureValue")[0]
-	sigvalue := tp.newresponse.Query1(nil, "//ds:SignatureValue")
-	tp.newresponse.NodeSetContent(sig, "x"+sigvalue)
-	tp.SSOSendResponse1()
-
-	response := gosaml.NewHtmlXp(tp.responsebody)
-	fmt.Println(response.Query1(nil, `//a[@id="errormsg"]/text()`))
-
-	tp.idpmd = tp.testidpviabirkmd
-	tp.SSOCreateInitialRequest()
-	tp.SSOSendRequest()
-	tp.SSOSendResponse()
-	tp.newresponse.QueryDashP(nil, "/samlp:Response/saml:Assertion/saml:Issuer", "anton", nil)
-	tp.SSOSendResponse2()
-	fmt.Println(strings.SplitN(string(tp.responsebody), " ", 2)[1])
 	// Output:
 	// Unable to validate Signature
 	// Error verifying signature on incoming SAMLResponse
@@ -238,84 +255,98 @@ func ExampleSignError1() {
 
 // ExampleSignError1 tests if the HUB and BIRK reacts on errors in the signing of responses and assertions
 func ExampleRequestSchemaError() {
-	tp := Newtp()
-
-	tp.idpmd = tp.testidpmd.CpXp()
-	tp.SSOCreateInitialRequest()
-    tp.initialrequest.QueryDashP(nil, "./@IsPassive", "isfalse", nil)
-	tp.SSOSendRequest()
-	response := gosaml.NewHtmlXp(tp.responsebody)
-	fmt.Println(response.Query1(nil, `//a[@id="errormsg"]/text()`))
-
-	tp.idpmd = tp.testidpviabirkmd
-	tp.SSOCreateInitialRequest()
-    tp.initialrequest.QueryDashP(nil, "./@IsPassive", "isfalse", nil)
-	tp.SSOSendRequest()
-	fmt.Println(strings.SplitN(string(tp.responsebody), " ", 2)[1])
+	requestmods := mods{mod{"./@IsPassive", "isfalse"}}
+	_ = DoRunTestHub(nil, requestmods, nil)
+	_ = DoRunTestBirk(nil, requestmods, nil, nil)
 	// Output:
 	// Invalid value of boolean attribute 'IsPassive': 'isfalse'
 	// SAMLMessage does not validate according to schema: , error(s): line: 2:0, error: Element '{urn:oasis:names:tc:SAML:2.0:protocol}AuthnRequest', attribute 'IsPassive': 'isfalse' is not a valid value of the atomic type 'xs:boolean'.
 }
 
-//
 func ExampleNoEPPNError() {
-	tp := Newtp()
-	eppn := tp.attributestmt.Query(nil, `//saml:Attribute[@Name="eduPersonPrincipalName"]`)[0]
-	tp.attributestmt.UnlinkNode(eppn)
-
-	tp.idpmd = tp.testidpmd.CpXp()
-	tp.SSOCreateInitialRequest()
-	tp.SSOSendRequest()
-	tp.SSOSendResponse1()
-	response := gosaml.NewHtmlXp(tp.responsebody)
-	fmt.Println(response.Query1(nil, `//a[@id="errormsg"]/text()`))
-
-    // no need to check birk - it doesn't care
-
+	attributemods := mods{mod{`/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]`, ""}}
+	_ = DoRunTestHub(attributemods, nil, nil)
 	// Output:
 	// mandatory: eduPersonPrincipalName
 }
 
-func ExampleUnknownSPError() {
-	tp := Newtp()
+func ExampleEPPNScopingError() {
+	attributemods := mods{mod{`/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue`, "joe@example.com"}}
+	_ = DoRunTestHub(attributemods, nil, nil)
+	// Output:
+}
 
-	tp.idpmd = tp.testidpmd.CpXp()
-	tp.SSOCreateInitialRequest()
-	tp.initialrequest.QueryDashP(nil, "./saml:Issuer", "https://www.example.com/unknownentity", nil)
-	tp.SSOSendRequest()
-	response := gosaml.NewHtmlXp(tp.responsebody)
-	fmt.Println(response.Query1(nil, `//a[@id="errormsg"]/text()`))
+func ExampleNoLocalpartInEPPNError() {
+	attributemods := mods{mod{`/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue`, "@this.is.not.a.valid.idp"}}
+	_ = DoRunTestHub(attributemods, nil, nil)
+	// Output:
+}
 
+func ExampleNoDomainInEPPNError() {
+	attributemods := mods{mod{`/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue`, "joe"}}
+	_ = DoRunTestHub(attributemods, nil, nil)
+	// Output:
+}
+
+func ApplyMods(xp *gosaml.Xp, m mods) {
+    for _, change := range m {
+        if change.value == "" {
+	        for _, element := range xp.Query(nil, change.path) {
+	            xp.UnlinkNode(element)
+	        }
+	    } else if strings.HasPrefix(change.value, "+ ") {
+	        for _, element := range xp.Query(nil, change.path) {
+                value := xp.NodeGetContent(element)
+                xp.NodeSetContent(element, strings.Fields(change.value)[1] + value)
+	        }
+        } else {
+            xp.QueryDashP(nil, change.path, change.value, nil)
+        }
+        //log.Println(xp.Pp())
+    }
+}
+
+func DoRunTestHub(attributemods, requestmods, responsemods mods) (tp *Testparams) {
+	tp = Newtp()
+
+    ApplyMods(tp.attributestmt, attributemods)
+    tp.SSOCreateInitialRequest()
+    ApplyMods(tp.initialrequest, requestmods)
+    tp.SSOSendRequest()
+    if tp.resp.StatusCode == 500 {
+        response := gosaml.NewHtmlXp(tp.responsebody)
+        fmt.Println(response.Query1(nil, `//a[@id="errormsg"]/text()`))
+        return
+    }
+    ApplyMods(tp.newresponse, responsemods)
+    tp.SSOSendResponse()
+    if tp.resp.StatusCode == 500 {
+        response := gosaml.NewHtmlXp(tp.responsebody)
+        fmt.Println(response.Query1(nil, `//a[@id="errormsg"]/text()`))
+        return
+    }
+    return
+}
+
+func DoRunTestBirk(attributemods, requestmods, responsemods, birkmods mods) (tp *Testparams) {
+	tp = Newtp()
 	tp.idpmd = tp.testidpviabirkmd
-	tp.SSOCreateInitialRequest()
-	tp.initialrequest.QueryDashP(nil, "./saml:Issuer", "https://www.example.com/unknownentity", nil)
-	tp.SSOSendRequest()
-	fmt.Println(strings.SplitN(string(tp.responsebody), " ", 2)[1])
 
-	// Output:
-	// Metadata not found for entity: https://www.example.com/unknownentity
-	// Metadata for entity: https://www.example.com/unknownentity not found
-}
-
-func xxExamplePerformance() {
-	concurrent := 100
-	for j := 0; j < concurrent; j++ {
-		//go sign()
-		wg.Add(1)
-		go xExamplePerformance(j)
-	}
-	wg.Wait()
-	// Output:
-	// anton
-}
-
-func xExamplePerformance(j int) {
-	requests := 10
-	tp := Newtp()
-	for i := 0; i < requests; i++ {
-		tp.SSOCreateInitialRequest()
-		tp.SSOSendRequest()
-		tp.SSOSendResponse()
-	}
-	wg.Done()
+    ApplyMods(tp.attributestmt, attributemods)
+    tp.SSOCreateInitialRequest()
+    ApplyMods(tp.initialrequest, requestmods)
+    tp.SSOSendRequest()
+    if tp.resp.StatusCode == 500 {
+    	fmt.Println(strings.SplitN(string(tp.responsebody), " ", 2)[1])
+    	return
+    }
+    ApplyMods(tp.newresponse, responsemods)
+    tp.SSOSendResponse1()
+    ApplyMods(tp.newresponse, birkmods)
+    tp.SSOSendResponse2()
+    if tp.resp.StatusCode == 500 {
+    	fmt.Println(strings.SplitN(string(tp.responsebody), " ", 2)[1])
+    	return
+    }
+    return
 }
