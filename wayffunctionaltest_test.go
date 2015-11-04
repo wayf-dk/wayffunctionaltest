@@ -3,26 +3,29 @@ package wayffunctionaltest
 // https://wiki.wayf.dk/display/WAYKI/Design+for+WAYF+functional+tests
 
 import (
+    "flag"
 	"fmt"
 	"github.com/wayf-dk/gosaml"
 	"io/ioutil"
 	"log"
 	"os"
 	"strconv"
-	"strings"
-	"sync"
+	"testing"
 )
 
 type mod struct {
 	path, value string
 }
+
 type mods []mod
+
+type modsset map[string]mods
 
 var (
 	mdq = "https://phph.wayf.dk/MDQ/"
 	_   = log.Printf // For debugging; delete when done.
 
-	wg sync.WaitGroup
+	defaulttp *Testparams
 
 	basic2iod = map[string]string{
 		`cn`:                          `urn:oid:2.5.4.3`,
@@ -67,7 +70,19 @@ var (
 		"schacCountryOfCitizenship":   {"dk"},
 		"displayName":                 {"Anton Banton Cantonsen"},
 	}
+
+	hub = flag.String("hub", "wayf.wayf.dk", "the hostname for the hub server to be tested")
+	birk = flag.String("birk", "birk.wayf.dk", "the hostname for the BIRK server to be tested")
+	trace = flag.Bool("xrace", false, "trace the request/response flow")
 )
+
+func TestMain(m *testing.M) {
+	flag.Parse()
+	log.SetPrefix("Wayf: ")
+	log.SetFlags(0)
+	log.Printf("hub: %s birk: %s\n", *hub, *birk)
+	os.Exit(m.Run())
+}
 
 func Newtp() (tp *Testparams) {
 	privatekeypw := os.Getenv("PW")
@@ -75,30 +90,40 @@ func Newtp() (tp *Testparams) {
 		log.Fatal("no PW environment var")
 	}
 	tp = new(Testparams)
-	tp.spmd = gosaml.NewMD(mdq+"EDUGAIN", "https://attribute-viewer.aai.switch.ch/interfederation-test/shibboleth")
-	tp.hubspmd = gosaml.NewMD("https://wayf.wayf.dk/module.php/saml/sp/metadata.php/wayf.wayf.dk", "")
-	tp.hubidpmd = gosaml.NewMD("https://wayf.wayf.dk/saml2/idp/metadata.php", "")
-	tp.testidpmd = gosaml.NewMD(mdq+"HUB-OPS", "https://this.is.not.a.valid.idp")
-	tp.testidpviabirkmd = gosaml.NewMD(mdq+"BIRK-OPS", "https://birk.wayf.dk/birk.php/this.is.not.a.valid.idp")
+    tp.Spmd = gosaml.NewMD(mdq+"EDUGAIN", "https://attribute-viewer.aai.switch.ch/interfederation-test/shibboleth")
+	tp.Hubspmd = gosaml.NewMD("https://wayf.wayf.dk/module.php/saml/sp/metadata.php/wayf.wayf.dk", "")
+	tp.Hubidpmd = gosaml.NewMD("https://wayf.wayf.dk/saml2/idp/metadata.php", "")
+	tp.Testidpmd = gosaml.NewMD(mdq+"HUB-OPS", "https://this.is.not.a.valid.idp")
+	tp.Testidpviabirkmd = gosaml.NewMD(mdq+"BIRK-OPS", "https://birk.wayf.dk/birk.php/this.is.not.a.valid.idp")
 
-	tp.idpmd = tp.testidpmd
-	tp.resolv = map[string]string{"wayf.wayf.dk": "wayf-02.wayf.dk:443", "birk.wayf.dk": "birk-03.wayf.dk:443"}
-	tp.logrequests = false
-	tp.attributestmt = b(avals)
-	tp.hashalgorithm = "sha1"
+	tp.Idpmd = tp.Testidpmd
+	tp.Resolv = map[string]string{"wayf.wayf.dk": *hub, "birk.wayf.dk": *birk}
+    tp.Logrequests = *trace
 
-	keyname, _, certificate, err := tp.idpmd.PublicKeyInfo("signing")
+	tp.Attributestmt = b(avals)
+	tp.Hashalgorithm = "sha1"
+
+	keyname, _, certificate, err := tp.Idpmd.PublicKeyInfo("signing")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	tp.certificate = certificate
+	tp.Certificate = certificate
 	pk, err := ioutil.ReadFile("/etc/ssl/wayf/signing/" + keyname + ".key")
 	if err != nil {
 		log.Fatal(err)
 	}
-	tp.privatekey = string(pk)
-	tp.privatekeypw = os.Getenv("PW")
+	tp.Privatekey = string(pk)
+	tp.Privatekeypw = os.Getenv("PW")
+	if defaulttp != nil {
+        if defaulttp.Encryptresponse {
+            tp.Encryptresponse = true
+        }
+        if defaulttp.Spmd != nil {
+            tp.Spmd = defaulttp.Spmd
+        }
+	}
+    defaulttp = nil
 	return
 }
 
@@ -121,7 +146,7 @@ func b(attrs map[string][]string) (ats *gosaml.Xp) {
 	return
 }
 
-// ExampleError1 tests if the HUB delivers the attributes in the correct format - only one (or none) is allowed
+// ExampleAttributeNameFormat tests if the hub delivers the attributes in the correct format - only one (or none) is allowed
 // Currently if none is specified we deliver both but lie about the format so we say that it is basic even though it actually is uri
 func ExampleAttributeNameFormat() {
 	const (
@@ -142,18 +167,10 @@ func ExampleAttributeNameFormat() {
 	// We shall be able to extract a subtree from a EntitiesDescriptor to a new document
 
 	sps := []*gosaml.Xp{urimd, basicmd, bothmd}
-	tp := Newtp()
 	for _, md := range sps {
-		tp.spmd = md.CpXp()
-		tp.SSOCreateInitialRequest()
-		tp.SSOSendRequest()
-		tp.SSOSendResponse()
-		if tp.resp.StatusCode == 500 {
-			response := gosaml.NewHtmlXp(tp.responsebody)
-			fmt.Println(response.Query1(nil, `//a[@id="errormsg"]/text()`))
-			continue
-		}
-		samlresponse := gosaml.Html2SAMLResponse(tp.responsebody)
+        defaulttp = &Testparams{Spmd: md}
+        tp := DoRunTestHub(nil)
+		samlresponse := gosaml.Html2SAMLResponse(tp.Responsebody)
 		requesteduri := md.QueryNumber(nil, mdcounturi) > 0
 		requestedbasic := md.QueryNumber(nil, mdcountbasic) > 0
 		requestedboth := md.QueryNumber(nil, mdcountboth) > 0
@@ -167,36 +184,14 @@ func ExampleAttributeNameFormat() {
 	// false false true false true
 }
 
-// Tests if the persistent nameID is the same from both the hub and BIRK
-func ExamplePersistantNameID() {
-	tp := Newtp()
-    tp.encryptresponse = true
-
-	metadata := []*gosaml.Xp{tp.testidpmd, tp.testidpviabirkmd}
-	persistentmods := mods{mod{"/samlp:AuthnRequest/samlp:NameIDPolicy[1]/@Format", "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent"}}
-
-	for _, md := range metadata {
-		tp.idpmd = md.CpXp()
-		tp.SSOCreateInitialRequest()
-		for _, change := range persistentmods {
-			tp.initialrequest.QueryDashP(nil, change.path, change.value, nil)
-		}
-		tp.SSOSendRequest1()
-		// now after birk if used - fix the request from BIRK so it requests persistent nameidformat
-		authnrequest := gosaml.Url2SAMLRequest(tp.resp.Location())
-		for _, change := range persistentmods {
-    		authnrequest.QueryDashP(nil, change.path, change.value, nil)
-		}
-		tp.resp.Header.Set("Location", gosaml.SAMLRequest2Url(authnrequest).String())
-
-		tp.SSOSendRequest2()
-		tp.SSOSendResponse()
-		if tp.resp.StatusCode == 500 {
-			response := gosaml.NewHtmlXp(tp.responsebody)
-			fmt.Println(response.Query1(nil, `//a[@id="errormsg"]/text()`))
-			continue
-		}
-		samlresponse := gosaml.Html2SAMLResponse(tp.responsebody)
+// ExamplePersistentNameID tests that the persistent nameID (and eptid) is the same from both the hub and BIRK
+func ExamplePersistentNameID() {
+	m := modsset{"requestmods": mods{mod{"/samlp:AuthnRequest/samlp:NameIDPolicy[1]/@Format", "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent"}}}
+    n := modsset{"birkrequestmods": m["requestmods"]}
+    hub := DoRunTestHub(m)
+    birk := DoRunTestBirk(n)
+    for _, tp := range []*Testparams{hub, birk} {
+    	samlresponse := gosaml.Html2SAMLResponse(tp.Responsebody)
 		nameidformat := samlresponse.Query1(nil, "//saml:NameID/@Format")
 		nameid := samlresponse.Query1(nil, "//saml:NameID")
 		eptid := samlresponse.Query1(nil, "//saml:Attribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10']/saml:AttributeValue")
@@ -208,10 +203,11 @@ func ExamplePersistantNameID() {
     // urn:oasis:names:tc:SAML:2.0:nameid-format:persistent WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77 WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77
 }
 
-func ExampleFullAttributeset() {
-	hub := DoRunTestHub(nil, nil, nil)
-	attributes := hub.newresponse.Query(nil, "//saml:AttributeStatement")[0]
-	fmt.Println(hub.newresponse.Dump2(attributes))
+// ExampleFullAttributeset1 test that the full attributeset is delivered to the default test sp
+func ExampleFullAttributeset1() {
+	hub := DoRunTestHub(nil)
+	attributes := hub.Newresponse.Query(nil, "//saml:AttributeStatement")[0]
+	fmt.Println(hub.Newresponse.Dump2(attributes))
 	// Output:
     // <saml:AttributeStatement>
     //     <saml:Attribute Name="urn:oid:2.5.4.3" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
@@ -242,111 +238,88 @@ func ExampleFullAttributeset() {
     //   </saml:AttributeStatement>
 }
 
-// ExampleSignError1 tests if the HUB and BIRK reacts on errors in the signing of responses and assertions
+// ExampleFullAttributeset2 test that the full attributeset is delivered to the PHPH service
+func ExampleFullAttributeset2() {
+    defaulttp = &Testparams{Spmd: gosaml.NewMD(mdq+"HUB-OPS", "https://metadata.wayf.dk/PHPh")}
+	hub := DoRunTestHub(nil)
+	attributes := hub.Newresponse.Query(nil, "//saml:AttributeStatement")[0]
+	fmt.Println(hub.Newresponse.Dump2(attributes))
+	// Output:
+    // <saml:AttributeStatement>
+    //     <saml:Attribute Name="eduPersonPrincipalName" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
+    //       <saml:AttributeValue xsi:type="xs:string">joe@this.is.not.a.valid.idp</saml:AttributeValue>
+    //     </saml:Attribute>
+    //     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.6" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
+    //       <saml:AttributeValue xsi:type="xs:string">joe@this.is.not.a.valid.idp</saml:AttributeValue>
+    //     </saml:Attribute>
+    //   </saml:AttributeStatement>
+}
+
+// ExampleFullAttributeset3 test that the full attributeset is delivered to the default test sp - the assertion is encrypted
+func ExampleFullEnctryptedAttributeset() {
+    defaulttp = &Testparams{Encryptresponse: true, Spmd: gosaml.NewMD(mdq+"HUB-OPS", "https://metadata.wayf.dk/PHPh")}
+	hub := DoRunTestHub(nil)
+    if attributes := hub.Newresponse.Query(nil, "//saml:AttributeStatement"); attributes != nil {
+	    fmt.Println(hub.Newresponse.Dump2(attributes[0]))
+	}
+	// Output:
+    // <saml:AttributeStatement>
+    //     <saml:Attribute Name="eduPersonPrincipalName" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
+    //       <saml:AttributeValue xsi:type="xs:string">joe@this.is.not.a.valid.idp</saml:AttributeValue>
+    //     </saml:Attribute>
+    //     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.6" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
+    //       <saml:AttributeValue xsi:type="xs:string">joe@this.is.not.a.valid.idp</saml:AttributeValue>
+    //     </saml:Attribute>
+    //   </saml:AttributeStatement>
+}
+
+// ExampleSignError1 tests if the hub and BIRK reacts on errors in the signing of responses and assertions
 func ExampleSignError1() {
-	responsemods := mods{mod{"//ds:SignatureValue", "+ 1234"}}
-	_ = DoRunTestHub(nil, nil, responsemods)
-	_ = DoRunTestBirk(nil, nil, nil, responsemods)
+	m := modsset{"responsemods": mods{mod{"//ds:SignatureValue", "+ 1234"}}}
+	_ = DoRunTestHub(m)
+	_ = DoRunTestBirk(m)
 
 	// Output:
 	// Unable to validate Signature
 	// Error verifying signature on incoming SAMLResponse
 }
 
-// ExampleSignError1 tests if the HUB and BIRK reacts on errors in the signing of responses and assertions
+// ExampleRequestSchemaError tests that the HUB and BIRK reacts on schema errors in requests
 func ExampleRequestSchemaError() {
-	requestmods := mods{mod{"./@IsPassive", "isfalse"}}
-	_ = DoRunTestHub(nil, requestmods, nil)
-	_ = DoRunTestBirk(nil, requestmods, nil, nil)
+	m := modsset{"requestmods": mods{mod{"./@IsPassive", "isfalse"}}}
+	_ = DoRunTestHub(m)
+	_ = DoRunTestBirk(m)
 	// Output:
 	// Invalid value of boolean attribute 'IsPassive': 'isfalse'
 	// SAMLMessage does not validate according to schema: , error(s): line: 2:0, error: Element '{urn:oasis:names:tc:SAML:2.0:protocol}AuthnRequest', attribute 'IsPassive': 'isfalse' is not a valid value of the atomic type 'xs:boolean'.
 }
 
+// ExampleNoEPPNError tests that the hub does not accept assertions with no eppn
 func ExampleNoEPPNError() {
-	attributemods := mods{mod{`/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]`, ""}}
-	_ = DoRunTestHub(attributemods, nil, nil)
+	m := modsset{"attributemods": mods{mod{`/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]`, ""}}}
+	_ = DoRunTestHub(m)
 	// Output:
 	// mandatory: eduPersonPrincipalName
 }
 
+// ExampleEPPNScopingError tests that the hub does not accept scoping errors in eppn - currently it does
 func ExampleEPPNScopingError() {
-	attributemods := mods{mod{`/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue`, "joe@example.com"}}
-	_ = DoRunTestHub(attributemods, nil, nil)
+	m := modsset{"attributemods": mods{mod{`/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue`, "joe@example.com"}}}
+	_ = DoRunTestHub(m)
 	// Output:
 }
 
+// ExampleNoLocalpartInEPPNError tests that the hub does not accept eppn with no localpart - currently it does
 func ExampleNoLocalpartInEPPNError() {
-	attributemods := mods{mod{`/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue`, "@this.is.not.a.valid.idp"}}
-	_ = DoRunTestHub(attributemods, nil, nil)
+	m := modsset{"attributemods": mods{mod{`/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue`, "@this.is.not.a.valid.idp"}}}
+	_ = DoRunTestHub(m)
 	// Output:
 }
 
+// ExampleNoLocalpartInEPPNError tests that the hub does not accept eppn with no domain - currently it does
 func ExampleNoDomainInEPPNError() {
-	attributemods := mods{mod{`/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue`, "joe"}}
-	_ = DoRunTestHub(attributemods, nil, nil)
+	m := modsset{"attributemods": mods{mod{`/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue`, "joe"}}}
+	_ = DoRunTestHub(m)
 	// Output:
 }
 
-func ApplyMods(xp *gosaml.Xp, m mods) {
-    for _, change := range m {
-        if change.value == "" {
-	        for _, element := range xp.Query(nil, change.path) {
-	            xp.UnlinkNode(element)
-	        }
-	    } else if strings.HasPrefix(change.value, "+ ") {
-	        for _, element := range xp.Query(nil, change.path) {
-                value := xp.NodeGetContent(element)
-                xp.NodeSetContent(element, strings.Fields(change.value)[1] + value)
-	        }
-        } else {
-            xp.QueryDashP(nil, change.path, change.value, nil)
-        }
-        //log.Println(xp.Pp())
-    }
-}
-
-func DoRunTestHub(attributemods, requestmods, responsemods mods) (tp *Testparams) {
-	tp = Newtp()
-
-    ApplyMods(tp.attributestmt, attributemods)
-    tp.SSOCreateInitialRequest()
-    ApplyMods(tp.initialrequest, requestmods)
-    tp.SSOSendRequest()
-    if tp.resp.StatusCode == 500 {
-        response := gosaml.NewHtmlXp(tp.responsebody)
-        fmt.Println(response.Query1(nil, `//a[@id="errormsg"]/text()`))
-        return
-    }
-    ApplyMods(tp.newresponse, responsemods)
-    tp.SSOSendResponse()
-    if tp.resp.StatusCode == 500 {
-        response := gosaml.NewHtmlXp(tp.responsebody)
-        fmt.Println(response.Query1(nil, `//a[@id="errormsg"]/text()`))
-        return
-    }
-    return
-}
-
-func DoRunTestBirk(attributemods, requestmods, responsemods, birkmods mods) (tp *Testparams) {
-	tp = Newtp()
-	tp.idpmd = tp.testidpviabirkmd
-
-    ApplyMods(tp.attributestmt, attributemods)
-    tp.SSOCreateInitialRequest()
-    ApplyMods(tp.initialrequest, requestmods)
-    tp.SSOSendRequest()
-    if tp.resp.StatusCode == 500 {
-    	fmt.Println(strings.SplitN(string(tp.responsebody), " ", 2)[1])
-    	return
-    }
-    ApplyMods(tp.newresponse, responsemods)
-    tp.SSOSendResponse1()
-    ApplyMods(tp.newresponse, birkmods)
-    tp.SSOSendResponse2()
-    if tp.resp.StatusCode == 500 {
-    	fmt.Println(strings.SplitN(string(tp.responsebody), " ", 2)[1])
-    	return
-    }
-    return
-}

@@ -28,41 +28,41 @@ var (
 // 2ndly call SSOSendRequest - the result is a SAMLResponse which again can be modified
 // 3rdly call SSOSendResponse - and analyze the final resulting SAMLResponse
 type Testparams struct {
-	spmd, idpmd, hubidpmd, hubspmd, testidpmd, testidpviabirkmd *gosaml.Xp
-	cookiejar                                                   map[string]map[string]*http.Cookie
-	idpentityID                                                 string
-	usescope                                                    bool
-	usedoubleproxy                                              bool
-	resolv                                                      map[string]string
-	initialrequest                                              *gosaml.Xp
-	newresponse                                                 *gosaml.Xp
-	resp                                                        *http.Response
-	responsebody                                                []byte
-	err                                                         error
-	logrequests, encryptresponse                                bool
-	privatekey                                                  string
-	privatekeypw                                                string
-	certificate	                                                string
-	hashalgorithm                                               string
-	attributestmt                                               *gosaml.Xp
+	Spmd, Idpmd, Hubidpmd, Hubspmd, Testidpmd, Testidpviabirkmd *gosaml.Xp
+	Cookiejar                                                   map[string]map[string]*http.Cookie
+	IdpentityID                                                 string
+	Usescope                                                    bool
+	Usedoubleproxy                                              bool
+	Resolv                                                      map[string]string
+	Initialrequest                                              *gosaml.Xp
+	Newresponse                                                 *gosaml.Xp
+	Resp                                                        *http.Response
+	Responsebody                                                []byte
+	Err                                                         error
+	Logrequests, Encryptresponse                                bool
+	Privatekey                                                  string
+	Privatekeypw                                                string
+	Certificate	                                                string
+	Hashalgorithm                                               string
+	Attributestmt                                               *gosaml.Xp
 }
 
 // SSOCreateInitialRequest creates a SAMLRequest given the tp Testparams
 func (tp *Testparams) SSOCreateInitialRequest() {
 
-	tp.idpentityID = tp.idpmd.Query1(nil, "@entityID")
-	tp.usedoubleproxy = strings.HasPrefix(tp.idpentityID, "https://birk")
+	tp.IdpentityID = tp.Idpmd.Query1(nil, "@entityID")
+	tp.Usedoubleproxy = strings.HasPrefix(tp.IdpentityID, "https://birk")
 
-	firstidpmd := tp.idpmd
-	if !tp.usedoubleproxy {
-		firstidpmd = tp.hubidpmd
+	firstidpmd := tp.Idpmd
+	if !tp.Usedoubleproxy {
+		firstidpmd = tp.Hubidpmd
 	}
 
-	tp.initialrequest = gosaml.NewAuthnRequest(gosaml.IdAndTiming{time.Now(), 4 * time.Minute, 4 * time.Hour, "", ""}, tp.spmd, firstidpmd)
+	tp.Initialrequest = gosaml.NewAuthnRequest(gosaml.IdAndTiming{time.Now(), 4 * time.Minute, 4 * time.Hour, "", ""}, tp.Spmd, firstidpmd)
 
 	// add scoping element if we want to bypass discovery
-	if tp.usescope {
-		tp.initialrequest.QueryDashP(nil, "./samlp:Scoping/samlp:IDPList/samlp:IDPEntry/@ProviderID", tp.idpentityID, nil)
+	if tp.Usescope {
+		tp.Initialrequest.QueryDashP(nil, "./samlp:Scoping/samlp:IDPList/samlp:IDPEntry/@ProviderID", tp.IdpentityID, nil)
 	}
 	return
 }
@@ -71,7 +71,7 @@ func (tp *Testparams) SSOCreateInitialRequest() {
 // If it meets a discovery service it reponds with the testidp
 func (tp *Testparams) SSOSendRequest() {
 	tp.SSOSendRequest1()
-	if tp.err != nil || tp.resp.StatusCode == 500 {
+	if tp.Err != nil || tp.Resp.StatusCode == 500 {
 		return
 	}
 	tp.SSOSendRequest2()
@@ -79,46 +79,46 @@ func (tp *Testparams) SSOSendRequest() {
 
 func (tp *Testparams) SSOSendRequest1() {
 
-	tp.cookiejar = make(map[string]map[string]*http.Cookie)
+	tp.Cookiejar = make(map[string]map[string]*http.Cookie)
 
-	u := gosaml.SAMLRequest2Url(tp.initialrequest)
+	u := gosaml.SAMLRequest2Url(tp.Initialrequest)
 	// initial request - to hub or birk
-	tp.resp, tp.responsebody, tp.err = tp.sendRequest(u, tp.resolv[u.Host], "GET", "", tp.cookiejar)
+	tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
 	// Errors from BIRK is 500 + text/plain
-	if tp.err != nil || tp.resp.StatusCode == 500 {
+	if tp.Err != nil || tp.Resp.StatusCode == 500 {
 		return
 	}
 
-	u, _ = tp.resp.Location()
+	u, _ = tp.Resp.Location()
 
 	query := u.Query()
 	// we got to a discoveryservice - choose our testidp
 	if len(query["return"]) > 0 && len(query["returnIDParam"]) > 0 {
 		u, _ = url.Parse(query["return"][0])
 		q := u.Query()
-		q.Set(query["returnIDParam"][0], tp.idpentityID)
+		q.Set(query["returnIDParam"][0], tp.IdpentityID)
 		u.RawQuery = q.Encode()
-		tp.resp, _, _ = tp.sendRequest(u, tp.resolv[u.Host], "GET", "", tp.cookiejar)
+		tp.Resp, _, _ = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
 	}
 }
 
 func (tp *Testparams) SSOSendRequest2() {
-	u, _ := tp.resp.Location()
+	u, _ := tp.Resp.Location()
 
 	// if going via birk we now got a scoped request to the hub
-	if tp.usedoubleproxy {
-		tp.resp, _, _ = tp.sendRequest(u, tp.resolv[u.Host], "GET", "", tp.cookiejar)
-		u, _ = tp.resp.Location()
+	if tp.Usedoubleproxy {
+		tp.Resp, _, _ = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
+		u, _ = tp.Resp.Location()
 	}
 
 	// We still expect to be redirected
 	// if we are not at our final IdP something is rotten
 
-	testidp, _ := url.Parse(tp.testidpmd.Query1(nil, "@entityID"))
+	testidp, _ := url.Parse(tp.Testidpmd.Query1(nil, "@entityID"))
 	if u.Host != testidp.Host {
 		// Errors from HUB is 302 to https://wayf.wayf.dk/displayerror.php ... which is a 500 with html content
-		u, _ = tp.resp.Location()
-		tp.resp, tp.responsebody, tp.err = tp.sendRequest(u, tp.resolv[u.Host], "GET", "", tp.cookiejar)
+		u, _ = tp.Resp.Location()
+		tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
 		return
 	}
 
@@ -128,17 +128,17 @@ func (tp *Testparams) SSOSendRequest2() {
 	authnrequest := gosaml.NewXp(gosaml.Inflate(req))
 
 	// create a response
-	tp.newresponse = gosaml.NewResponse(gosaml.IdAndTiming{time.Now(), 4 * time.Minute, 4 * time.Hour, "", ""}, tp.testidpmd, tp.hubspmd, authnrequest, tp.attributestmt)
+	tp.Newresponse = gosaml.NewResponse(gosaml.IdAndTiming{time.Now(), 4 * time.Minute, 4 * time.Hour, "", ""}, tp.Testidpmd, tp.Hubspmd, authnrequest, tp.Attributestmt)
 
 	// and sign it
-	assertion := tp.newresponse.Query(nil, "saml:Assertion[1]")[0]
+	assertion := tp.Newresponse.Query(nil, "saml:Assertion[1]")[0]
 
 	// use cert to calculate key name
-	tp.newresponse.Sign(assertion, tp.privatekey, tp.privatekeypw, tp.certificate, tp.hashalgorithm)
+	tp.Newresponse.Sign(assertion, tp.Privatekey, tp.Privatekeypw, tp.Certificate, tp.Hashalgorithm)
 
-	if tp.encryptresponse {
-	    _, publickey, _, _ := tp.hubspmd.PublicKeyInfo("encryption")
-	    tp.newresponse.Encrypt(assertion, publickey)
+	if tp.Encryptresponse {
+	    _, publickey, _, _ := tp.Hubspmd.PublicKeyInfo("encryption")
+	    tp.Newresponse.Encrypt(assertion, publickey)
 	}
 	return
 }
@@ -153,36 +153,36 @@ func (tp *Testparams) SSOSendResponse() {
 
 func (tp *Testparams) SSOSendResponse1() {
 	// and POST it to the hub
-	acs := tp.newresponse.Query1(nil, "@Destination")
+	acs := tp.Newresponse.Query1(nil, "@Destination")
 	data := url.Values{}
-	data.Set("SAMLResponse", base64.StdEncoding.EncodeToString([]byte(tp.newresponse.X2s())))
+	data.Set("SAMLResponse", base64.StdEncoding.EncodeToString([]byte(tp.Newresponse.X2s())))
 
 	u, _ := url.Parse(acs)
-	tp.resp, tp.responsebody, tp.err = tp.sendRequest(u, tp.resolv[u.Host], "POST", data.Encode(), tp.cookiejar)
+	tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "POST", data.Encode(), tp.Cookiejar)
 
-	if u, _ = tp.resp.Location(); u == nil {
+	if u, _ = tp.Resp.Location(); u == nil {
 		return
 	}
 
-	if tp.resp.StatusCode == 500 {
+	if tp.Resp.StatusCode == 500 {
 		return
 	}
 
 	if strings.Contains(u.Path, "displayerror.php") {
-		tp.resp, tp.responsebody, tp.err = tp.sendRequest(u, tp.resolv[u.Host], "GET", "", tp.cookiejar)
+		tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
 		return
 	}
 	// and now for some consent
 	if strings.Contains(u.Path, "getconsent.php") {
 		u.RawQuery = u.RawQuery + "&yes=1"
-		tp.resp, tp.responsebody, tp.err = tp.sendRequest(u, tp.resolv[u.Host], "GET", "", tp.cookiejar)
+		tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
 	}
-	tp.newresponse = gosaml.Html2SAMLResponse(tp.responsebody)
+	tp.Newresponse = gosaml.Html2SAMLResponse(tp.Responsebody)
 }
 
 func (tp *Testparams) SSOSendResponse2() {
 	// if going via birk we have to POST it again
-	if tp.usedoubleproxy {
+	if tp.Usedoubleproxy {
 		tp.SSOSendResponse1()
 	}
 	// last POST doesn't actually get POSTed - we don't have a real SP ...
@@ -194,8 +194,9 @@ func (tp *Testparams) SSOSendResponse2() {
 // The server parameter contains the dns name of the actual server, which should respond to the host part of the url
 func (tp *Testparams) sendRequest(url *url.URL, server, method, body string, cookies map[string]map[string]*http.Cookie) (resp *http.Response, responsebody []byte, err error) {
 	if server == "" {
-		server = url.Host + ":443"
+		server = url.Host
 	}
+	server += ":443"
 	tr := &http.Transport{
 		TLSClientConfig:    &tls.Config{InsecureSkipVerify: true},
 		Dial:               func(network, addr string) (net.Conn, error) { return net.Dial("tcp", server) },
@@ -236,7 +237,7 @@ func (tp *Testparams) sendRequest(url *url.URL, server, method, body string, coo
 	if location != nil {
 		loc = location.Host + location.Path
 	}
-	if tp.logrequests {
+	if tp.Logrequests {
 		log.Printf("%-4s %-70s %s %-15s %s\n", req.Method, server+req.URL.Path, resp.Proto, resp.Status, loc)
 	}
 	setcookies := resp.Cookies()
@@ -256,3 +257,82 @@ func (tp *Testparams) sendRequest(url *url.URL, server, method, body string, coo
 	err = nil
 	return
 }
+
+func ApplyMods(xp *gosaml.Xp, m mods) {
+    for _, change := range m {
+        if change.value == "" {
+	        for _, element := range xp.Query(nil, change.path) {
+	            xp.UnlinkNode(element)
+	        }
+	    } else if strings.HasPrefix(change.value, "+ ") {
+	        for _, element := range xp.Query(nil, change.path) {
+                value := xp.NodeGetContent(element)
+                xp.NodeSetContent(element, strings.Fields(change.value)[1] + value)
+	        }
+        } else {
+            xp.QueryDashP(nil, change.path, change.value, nil)
+        }
+        //log.Println(xp.Pp())
+    }
+}
+
+
+func DoRunTestHub(m modsset) (tp *Testparams) {
+    tp = Newtp()
+    defer xxx(tp.Logrequests)
+    ApplyMods(tp.Attributestmt, m["attributemods"])
+    tp.SSOCreateInitialRequest()
+    ApplyMods(tp.Initialrequest, m["requestmods"])
+    tp.SSOSendRequest()
+    if tp.Resp.StatusCode == 500 {
+        response := gosaml.NewHtmlXp(tp.Responsebody)
+        fmt.Println(response.Query1(nil, `//a[@id="errormsg"]/text()`))
+        return
+    }
+    ApplyMods(tp.Newresponse, m["responsemods"])
+    tp.SSOSendResponse()
+    if tp.Resp.StatusCode == 500 {
+        response := gosaml.NewHtmlXp(tp.Responsebody)
+        fmt.Println(response.Query1(nil, `//a[@id="errormsg"]/text()`))
+        return
+    }
+    return
+}
+
+func DoRunTestBirk(m modsset) (tp *Testparams) {
+	tp = Newtp()
+    defer xxx(tp.Logrequests)
+	tp.Idpmd = tp.Testidpviabirkmd
+
+    ApplyMods(tp.Attributestmt, m["attributemods"])
+    tp.SSOCreateInitialRequest()
+    ApplyMods(tp.Initialrequest, m["requestmods"])
+    tp.SSOSendRequest1()
+    if tp.Resp.StatusCode == 500 {
+    	fmt.Println(strings.SplitN(string(tp.Responsebody), " ", 2)[1])
+    	return
+    }
+    authnrequest := gosaml.Url2SAMLRequest(tp.Resp.Location())
+    ApplyMods(authnrequest, m["birkrequestmods"])
+    tp.Resp.Header.Set("Location", gosaml.SAMLRequest2Url(authnrequest).String())
+    if tp.Resp.StatusCode == 500 {
+    	fmt.Println(strings.SplitN(string(tp.Responsebody), " ", 2)[1])
+    	return
+    }
+    tp.SSOSendRequest2()
+    tp.SSOSendResponse1()
+    ApplyMods(tp.Newresponse, m["responsemods"])
+    tp.SSOSendResponse2()
+    if tp.Resp.StatusCode == 500 {
+    	fmt.Println(strings.SplitN(string(tp.Responsebody), " ", 2)[1])
+    	return
+    }
+    return
+}
+
+func xxx(really bool) {
+    if really {
+        log.Println()
+    }
+}
+
