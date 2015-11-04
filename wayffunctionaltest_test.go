@@ -1,7 +1,5 @@
 package wayffunctionaltest
 
-// https://wiki.wayf.dk/display/WAYKI/Design+for+WAYF+functional+tests
-
 import (
     "flag"
 	"fmt"
@@ -23,33 +21,8 @@ type modsset map[string]mods
 
 var (
 	mdq = "https://phph.wayf.dk/MDQ/"
-	_   = log.Printf // For debugging; delete when done.
 
 	defaulttp *Testparams
-
-	basic2iod = map[string]string{
-		`cn`:                          `urn:oid:2.5.4.3`,
-		`displayName`:                 `urn:oid:2.16.840.1.113730.3.1.241`,
-		`eduPersonAffiliation`:        `urn:oid:1.3.6.1.4.1.5923.1.1.1.1`,
-		`eduPersonAssurance`:          `urn:oid:1.3.6.1.4.1.5923.1.1.1.11`,
-		`eduPersonEntitlement`:        `urn:oid:1.3.6.1.4.1.5923.1.1.1.7`,
-		`eduPersonPrimaryAffiliation`: `urn:oid:1.3.6.1.4.1.5923.1.1.1.5`,
-		`eduPersonPrincipalName`:      `urn:oid:1.3.6.1.4.1.5923.1.1.1.6`,
-		`eduPersonScopedAffiliation`:  `urn:oid:1.3.6.1.4.1.5923.1.1.1.9`,
-		`eduPersonTargetedID`:         `urn:oid:1.3.6.1.4.1.5923.1.1.1.10`,
-		`gn`:                        `urn:oid:2.5.4.42`,
-		`mail`:                      `urn:oid:0.9.2342.19200300.100.1.3`,
-		`norEduPersonLIN`:           `urn:oid:1.3.6.1.4.1.2428.90.1.4`,
-		`organizationName`:          `urn:oid:2.5.4.10`,
-		`preferredLanguage`:         `urn:oid:2.16.840.1.113730.3.1.39`,
-		`schacCountryOfCitizenship`: `urn:oid:1.3.6.1.4.1.25178.1.2.5`,
-		`schacDateOfBirth`:          `urn:oid:1.3.6.1.4.1.25178.1.2.3`,
-		`schacHomeOrganization`:     `urn:oid:1.3.6.1.4.1.25178.1.2.9`,
-		`schacHomeOrganizationType`: `urn:oid:1.3.6.1.4.1.25178.1.2.10`,
-		`schacPersonalUniqueID`:     `urn:oid:1.3.6.1.4.1.25178.1.2.15`,
-		`schacYearOfBirth`:          `urn:oid:1.3.6.1.4.1.25178.1.0.2.3`,
-		`sn`:                        `urn:oid:2.5.4.4`,
-	}
 
 	avals = map[string][]string{
 		"eduPersonPrincipalName": {"joe@this.is.not.a.valid.idp"},
@@ -78,8 +51,6 @@ var (
 
 func TestMain(m *testing.M) {
 	flag.Parse()
-	log.SetPrefix("Wayf: ")
-	log.SetFlags(0)
 	log.Printf("hub: %s birk: %s\n", *hub, *birk)
 	os.Exit(m.Run())
 }
@@ -322,4 +293,3 @@ func ExampleNoDomainInEPPNError() {
 	_ = DoRunTestHub(m)
 	// Output:
 }
-

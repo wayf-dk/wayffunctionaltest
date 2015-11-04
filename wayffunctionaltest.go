@@ -1,3 +1,11 @@
+// Wayffunctionaltest is a library that makes it easy/easier to make tests for
+// the WAYF hub and BIRK hub.
+// It 'contains' an SP, an IdP and a browser that drives the SAML request/response flow
+// thru the hubs. During the flow the requests/responses can be modified to test
+// specific behavior of the hubs - eg. introducing errors.
+// The actual tests are written as tests for the package - (mis)using the Go testing framework
+// to do the testing minuteae.
+// It depends on wayf-dk/gosaml for doing SAML things.
 package wayffunctionaltest
 
 import (
@@ -77,6 +85,7 @@ func (tp *Testparams) SSOSendRequest() {
 	tp.SSOSendRequest2()
 }
 
+// SSOSendRequest1 does the 1st part of sending the request, handles the discovery service if needed
 func (tp *Testparams) SSOSendRequest1() {
 
 	tp.Cookiejar = make(map[string]map[string]*http.Cookie)
@@ -102,6 +111,8 @@ func (tp *Testparams) SSOSendRequest1() {
 	}
 }
 
+// SSOSendRequest2 does the 2nd part of sending the request to the final IdP.
+// Creates the response and signs and optionally encrypts it
 func (tp *Testparams) SSOSendRequest2() {
 	u, _ := tp.Resp.Location()
 
@@ -151,6 +162,7 @@ func (tp *Testparams) SSOSendResponse() {
 	tp.SSOSendResponse2()
 }
 
+// SSOSendResponse1 sends the respnse back thru the hub, answers yes to consent if asked
 func (tp *Testparams) SSOSendResponse1() {
 	// and POST it to the hub
 	acs := tp.Newresponse.Query1(nil, "@Destination")
@@ -180,6 +192,7 @@ func (tp *Testparams) SSOSendResponse1() {
 	tp.Newresponse = gosaml.Html2SAMLResponse(tp.Responsebody)
 }
 
+// SSOSendResponse2 sends the response further thru BIRK if needed
 func (tp *Testparams) SSOSendResponse2() {
 	// if going via birk we have to POST it again
 	if tp.Usedoubleproxy {
@@ -258,6 +271,10 @@ func (tp *Testparams) sendRequest(url *url.URL, server, method, body string, coo
 	return
 }
 
+// ApplyMods changes a SAML message by applying an array of xpath expressions and a value
+//     If the value is "" the nodes are unlinked
+//     if the value starts with "+ " the the node content is prefixed with the rest of the value
+//     Otherwise the node content is replaced with the value
 func ApplyMods(xp *gosaml.Xp, m mods) {
     for _, change := range m {
         if change.value == "" {
@@ -276,7 +293,8 @@ func ApplyMods(xp *gosaml.Xp, m mods) {
     }
 }
 
-
+// DoRunTestHub runs a test on the hub - applying the necessary modifications on the way.
+// Returns a *Testparams which can be analyzed
 func DoRunTestHub(m modsset) (tp *Testparams) {
     tp = Newtp()
     defer xxx(tp.Logrequests)
@@ -299,6 +317,8 @@ func DoRunTestHub(m modsset) (tp *Testparams) {
     return
 }
 
+// DoRunTestBirk runs a test on the hub - applying the necessary modifications on the way
+// Returns a *Testparams which can be analyzed
 func DoRunTestBirk(m modsset) (tp *Testparams) {
 	tp = Newtp()
     defer xxx(tp.Logrequests)
