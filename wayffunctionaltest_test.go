@@ -93,6 +93,12 @@ func Newtp() (tp *Testparams) {
         if defaulttp.Spmd != nil {
             tp.Spmd = defaulttp.Spmd
         }
+        if defaulttp.Privatekey != "" {
+            tp.Privatekey = defaulttp.Privatekey
+        }
+        if defaulttp.Privatekeypw != "" {
+            tp.Privatekeypw = defaulttp.Privatekeypw
+        }
 	}
     defaulttp = nil
 	return
@@ -119,11 +125,12 @@ func b(attrs map[string][]string) (ats *gosaml.Xp) {
 
 // ExampleAttributeNameFormat tests if the hub delivers the attributes in the correct format - only one (or none) is allowed
 // Currently if none is specified we deliver both but lie about the format so we say that it is basic even though it actually is uri
+// As PHPH always uses uri we just count the number of RequestedAttributes
 func ExampleAttributeNameFormat() {
 	const (
 		mdcounturi   = "count(//md:RequestedAttribute[@NameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:uri'])"
 		mdcountbasic = "count(//md:RequestedAttribute[@NameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:basic'])"
-		mdcountboth  = "count(//md:RequestedAttribute[not(@NameFormat)])"
+		mdcount  = "count(//md:RequestedAttribute)"
 		ascounturi   = "count(//saml:Attribute[@NameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:uri'])"
 		ascountbasic = "count(//saml:Attribute[@NameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:basic'])"
 	)
@@ -141,17 +148,15 @@ func ExampleAttributeNameFormat() {
         defaulttp = &Testparams{Spmd: md}
         tp := DoRunTestHub(nil)
 		samlresponse := gosaml.Html2SAMLResponse(tp.Responsebody)
-		requesteduri := md.QueryNumber(nil, mdcounturi) > 0
-		requestedbasic := md.QueryNumber(nil, mdcountbasic) > 0
-		requestedboth := md.QueryNumber(nil, mdcountboth) > 0
-		uricount := samlresponse.QueryNumber(nil, ascounturi) > 0
-		basiccount := samlresponse.QueryNumber(nil, ascountbasic) > 0
-		fmt.Printf("%t %t %t %t %t\n", requesteduri, requestedbasic, requestedboth, uricount, basiccount)
+		requested := md.QueryNumber(nil, mdcount)
+		uricount := samlresponse.QueryNumber(nil, ascounturi)
+		basiccount := samlresponse.QueryNumber(nil, ascountbasic)
+		fmt.Printf("%t %t %t\n", basiccount == requested * 2, uricount == requested, basiccount == requested)
 	}
 	// Output:
-	// true false false true false
-	// false true false false true
-	// false false true false true
+	// false true false
+	// false false true
+	// true false false
 }
 
 // ExamplePersistentNameID tests that the persistent nameID (and eptid) is the same from both the hub and BIRK
@@ -254,6 +259,46 @@ func ExampleSignError1() {
 	// Error verifying signature on incoming SAMLResponse
 }
 
+// ExampleSignError2 tests if the hub and BIRK reacts on errors in the signing of responses and assertions
+func ExampleSignError2() {
+    pk := `-----BEGIN RSA PRIVATE KEY-----
+MIIEogIBAAKCAQEAsd0urclhDMeNqfmmES6LxVf3mK6CAX3vER1Te8QNLsd1iUEq
+inmx+j6TqoyLBuVrQkOSMn7pPQMobjpca81KsWcS00RvZCNAgreTj4jOzfIouSml
+6BDjuEPP9GEjQhf5iajenBeKfK8jPVnpxEKsuopE6ueKG5Rpi59mV/iVq7ZMQSGl
+504OBKWBkAUgO5dPneB632uJSp2kiy0/YNUp30ItR45TncOqEtkrwBx219pRg2B0
+2ot8TwZ8xFD7LG2V/hq8+0Ppp+tzTWDAri5z5ZSrAn0/j8sC56Qcwl2w2sYYhpNx
+8T9x1QupnIpR1RyHCqR5mBJWDtO3pLAyPW74EwIDAQABAoIBAG9MixMwusw2a017
+7RE/YTNCUqt2N+AbH+hDw6PlEKK/KauT3bz9XgPL+Ld2buEH2tCCXA/BHs6RFVG0
+r3S96AmPCFavskylSo8BtRLSdyakbBtCFpFbUERUGuM/jcKkIgCkbXibuos/RPv1
+MbUgS9oHAA1GikOr4Uf/nRlbcr0ZsRQnqp9uaK+rMCnypBQFB/YE1eKuTqSXf/Yb
+D0+xJ3XDaTalBH2qXfIZX3+hKd7NvL5KHAc5ZVj3LzaBJ6GXV7nIKKbbTbdQdjxe
+uEzPj36Zb7ultAorQYIyPHlGiXBh+gpkC3BHxDLwIqG+Iw0wUCnlKTDBO0qq8JcZ
+TQAVsmECgYEA2IAosfRHjgWhT40+JTd/DICLoa/VAUeHok1JvjirJwADjDj0oZ6C
+Ry5ioxrOpxH1RvHSfCHdKt0/aPviyEJGDRU8d/tFQypeSzDHL/BDQtavw/Na5c9x
+epCft6HshpuzPr43IYB/VbiUedm8w78jNIcXEphNgNLaw22uU/3gkfkCgYEA0lB3
+t+QJiHXY3J7YHze5jYrK96By9DY8MjkgKLwxaFFGZqpb2egXQK5ohBHuAbZXVGDY
+oOH/IOBgdsOYuJv7NKfMY35wzrMygfWXbSNlTZwdrmJPqOSfUwu/hmBuwEHsfrEJ
+3a2xiX+OFhfRwebcQwgOrN1FVpobKrXqYjp+3WsCgYB/vu9EQY1PIcdS91ZqA1r1
+94tsdiHLRXekrtIKacmjk4CEZr8B9lOMyLPu5cx2DESb/ehi0mB8AFyAB9CCtYg8
+BAHQEfWGciN9XmTJxo0JjT/c8WT7IPImjduQMP0tWAXlybsiC34XCHijhXS6U7fk
+MKnOkQt6LfBjS/6HFNBDkQKBgBbW0DlzFSnxikxjH5s8RPU/Bk2f6fvlS+I0W+6w
+iTkH4npRs8nVL3lBt23oOI2NDKzIG55VDIy4cSFUmmgp4DzWoBaJ65w2z5xXXEto
+1Z54/qwqVvZDZZ3yH6lrHXvZbOJRPX4KV8ZTyM1TZt8EwBSzckyJdvcxoxOfT8W9
+DnvjAoGAIu1AHwMhBdGmwffsII1VAb7gyYnjFbPfaSrwaxIMJ61Djayg4XhGFJ5+
+NDVIEaV6/PITFgNcYIzBZxgCEqZ6jJ5jiidlnUbGPYaMhPN/mmHCP/2dvYW6ZSGC
+mYqIGJZzLM/wk1u/CG52i+zDOiYbeiYNZc7qhIFU9ueinr88YZo=
+-----END RSA PRIVATE KEY-----
+`
+
+    defaulttp = &Testparams{Privatekey: pk, Privatekeypw: "-"}
+	_ = DoRunTestHub(nil)
+// need to do resign before sending to birk - not able pt
+//	_ = DoRunTestBirk(nil)
+
+	// Output:
+	// Unable to validate Signature
+}
+
 // ExampleRequestSchemaError tests that the HUB and BIRK reacts on schema errors in requests
 func ExampleRequestSchemaError() {
 	m := modsset{"requestmods": mods{mod{"./@IsPassive", "isfalse"}}}
@@ -291,4 +336,20 @@ func ExampleNoDomainInEPPNError() {
 	m := modsset{"attributemods": mods{mod{`/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue`, "joe"}}}
 	_ = DoRunTestHub(m)
 	// Output:
+}
+
+func ExampleUnknownSPError() {
+	m := modsset{"requestmods": mods{mod{"./saml:Issuer", "https://www.example.com/unknownentity"}}}
+	_ = DoRunTestHub(m)
+	_ = DoRunTestBirk(m)
+	// Output:
+	// Metadata not found for entity: https://www.example.com/unknownentity
+	// Metadata for entity: https://www.example.com/unknownentity not found
+}
+
+func ExampleUnknownIDPError() {
+	m := modsset{"requestmods": mods{mod{"./@Destination", "https://birk.wayf.dk/birk.php/www.example.com/unknownentity"}}}
+	_ = DoRunTestBirk(m)
+	// Output:
+	// Could not get needed metadata about endpoint: https://birk.wayf.dk/birk.php/www.example.com/unknownentity
 }

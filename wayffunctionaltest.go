@@ -145,7 +145,10 @@ func (tp *Testparams) SSOSendRequest2() {
 	assertion := tp.Newresponse.Query(nil, "saml:Assertion[1]")[0]
 
 	// use cert to calculate key name
-	tp.Newresponse.Sign(assertion, tp.Privatekey, tp.Privatekeypw, tp.Certificate, tp.Hashalgorithm)
+	err := tp.Newresponse.Sign(assertion, tp.Privatekey, tp.Privatekeypw, tp.Certificate, tp.Hashalgorithm)
+	if err != nil {
+	    log.Fatal(err)
+	}
 
 	if tp.Encryptresponse {
 	    _, publickey, _, _ := tp.Hubspmd.PublicKeyInfo("encryption")
