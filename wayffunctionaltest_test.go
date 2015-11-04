@@ -129,13 +129,12 @@ func ExampleAttributeNameFormat() {
 	)
 
 	spmd := gosaml.NewMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed", "")
-	uri := spmd.Query1(nil, "//wayf:wayf[wayf:AttributeNameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:uri' and wayf:redirect.validate='']/../../@entityID")
-	urimd := gosaml.NewMD(mdq+"HUB-OPS", uri)
-	basic := spmd.Query1(nil, "//wayf:wayf[wayf:AttributeNameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:basic' and wayf:redirect.validate='']/../../@entityID")
-	basicmd := gosaml.NewMD(mdq+"HUB-OPS", basic)
-	both := spmd.Query1(nil, "//wayf:wayf[wayf:AttributeNameFormat='' and wayf:redirect.validate='']/../../@entityID")
-	bothmd := gosaml.NewMD(mdq+"HUB-OPS", both)
-	// We shall be able to extract a subtree from a EntitiesDescriptor to a new document
+	uri := spmd.Query(nil, "//wayf:wayf[wayf:AttributeNameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:uri' and wayf:redirect.validate='']/../..")
+	urimd := gosaml.NewXpFromNode(uri[0])
+	basic := spmd.Query(nil, "//wayf:wayf[wayf:AttributeNameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:basic' and wayf:redirect.validate='']/../..")
+	basicmd := gosaml.NewXpFromNode(basic[0])
+	both := spmd.Query(nil, "//wayf:wayf[wayf:AttributeNameFormat='' and wayf:redirect.validate='']/../..")
+ 	bothmd := gosaml.NewXpFromNode(both[0])
 
 	sps := []*gosaml.Xp{urimd, basicmd, bothmd}
 	for _, md := range sps {
