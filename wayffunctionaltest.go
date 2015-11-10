@@ -53,6 +53,7 @@ type Testparams struct {
 	Certificate	                                                string
 	Hashalgorithm                                               string
 	Attributestmt                                               *gosaml.Xp
+	ViaKrib                                                     bool
 }
 
 // SSOCreateInitialRequest creates a SAMLRequest given the tp Testparams
@@ -88,9 +89,12 @@ func (tp *Testparams) SSOSendRequest() {
 // SSOSendRequest1 does the 1st part of sending the request, handles the discovery service if needed
 func (tp *Testparams) SSOSendRequest1() {
 
-	tp.Cookiejar = make(map[string]map[string]*http.Cookie)
-
 	u := gosaml.SAMLRequest2Url(tp.Initialrequest)
+	if tp.ViaKrib {
+	    u.Host = "birk.wayf.dk"
+	    u.Path = "/krib.php"
+	}
+
 	// initial request - to hub or birk
 	tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
 	// Errors from BIRK is 500 + text/plain
@@ -99,6 +103,17 @@ func (tp *Testparams) SSOSendRequest1() {
 	}
 
 	u, _ = tp.Resp.Location()
+
+    if tp.ViaKrib {
+	tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
+	// Errors from BIRK is 500 + text/plain
+	if tp.Err != nil || tp.Resp.StatusCode == 500 {
+
+		return
+	}
+
+	u, _ = tp.Resp.Location()
+    }
 
 	query := u.Query()
 	// we got to a discoveryservice - choose our testidp
@@ -200,6 +215,16 @@ func (tp *Testparams) SSOSendResponse2() {
 	// if going via birk we have to POST it again
 	if tp.Usedoubleproxy {
 		tp.SSOSendResponse1()
+
+        if tp.ViaKrib {
+
+            data := url.Values{}
+            data.Set("SAMLResponse", base64.StdEncoding.EncodeToString([]byte(tp.Newresponse.X2s())))
+
+            u, _ := url.Parse("https://birk.wayf.dk/krib.php")
+            tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "POST", data.Encode(), tp.Cookiejar)
+            log.Printf("krib: %s\n", string(tp.Responsebody))
+        }
 	}
 	// last POST doesn't actually get POSTed - we don't have a real SP ...
 	return
@@ -353,9 +378,40 @@ func DoRunTestBirk(m modsset) (tp *Testparams) {
     return
 }
 
+// DoRunTestKrib
+func DoRunTestKrib(m modsset) (tp *Testparams) {
+	tp = Newtp()
+    defer xxx(tp.Logrequests)
+	tp.Idpmd = tp.Testidpviabirkmd
+
+    tp.SSOCreateInitialRequest()
+
+    tp.SSOSendRequest1()
+    if tp.Resp.StatusCode == 500 {
+    	fmt.Println(strings.SplitN(string(tp.Responsebody), " ", 2)[1])
+    	return
+    }
+
+    authnrequest := gosaml.Url2SAMLRequest(tp.Resp.Location())
+    tp.Resp.Header.Set("Location", gosaml.SAMLRequest2Url(authnrequest).String())
+    if tp.Resp.StatusCode == 500 {
+    	fmt.Println(strings.SplitN(string(tp.Responsebody), " ", 2)[1])
+    	return
+    }
+    tp.SSOSendRequest2()
+    tp.SSOSendResponse1()
+    tp.SSOSendResponse2()
+    if tp.Resp.StatusCode == 500 {
+    	fmt.Println(strings.SplitN(string(tp.Responsebody), " ", 2)[1])
+    	return
+    }
+    return
+}
+
 func xxx(really bool) {
     if really {
         log.Println()
     }
 }
+
 
