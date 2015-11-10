@@ -6,6 +6,7 @@ import (
 	"github.com/wayf-dk/gosaml"
 	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"strconv"
 	"testing"
@@ -45,13 +46,15 @@ var (
 	}
 
 	hub = flag.String("hub", "wayf.wayf.dk", "the hostname for the hub server to be tested")
+	hubbe = flag.String("hubbe", "", "the hub backend server")
 	birk = flag.String("birk", "birk.wayf.dk", "the hostname for the BIRK server to be tested")
+	birkbe = flag.String("birkbe", "", "the birk backend server")
 	trace = flag.Bool("xrace", false, "trace the request/response flow")
 )
 
 func TestMain(m *testing.M) {
 	flag.Parse()
-	log.Printf("hub: %s birk: %s\n", *hub, *birk)
+	log.Printf("hub: %s be: '%s' birk: %s be: '%s'\n", *hub, *hubbe, *birk, *birkbe)
 	os.Exit(m.Run())
 }
 
@@ -70,6 +73,12 @@ func Newtp() (tp *Testparams) {
 	tp.Idpmd = tp.Testidpmd
 	tp.Resolv = map[string]string{"wayf.wayf.dk": *hub, "birk.wayf.dk": *birk}
     tp.Logrequests = *trace
+
+	tp.Cookiejar = make(map[string]map[string]*http.Cookie)
+	tp.Cookiejar["wayf.wayf.dk"] = make(map[string]*http.Cookie)
+    tp.Cookiejar["wayf.wayf.dk"]["wayfid"] = &http.Cookie{Name: "wayfid", Value: *hubbe}
+	tp.Cookiejar["birk.wayf.dk"] = make(map[string]*http.Cookie)
+    tp.Cookiejar["birk.wayf.dk"]["birkid"] = &http.Cookie{Name: "birkid", Value: *birkbe}
 
 	tp.Attributestmt = b(avals)
 	tp.Hashalgorithm = "sha1"
