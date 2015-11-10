@@ -110,6 +110,7 @@ func Newtp() (tp *Testparams) {
         }
 	}
     defaulttp = nil
+    tp.ViaKrib = false
 	return
 }
 
@@ -191,6 +192,41 @@ func ExamplePersistentNameID() {
 func ExampleFullAttributeset1() {
 	hub := DoRunTestHub(nil)
 	attributes := hub.Newresponse.Query(nil, "//saml:AttributeStatement")[0]
+	fmt.Println(hub.Newresponse.Dump2(attributes))
+	// Output:
+    // <saml:AttributeStatement>
+    //     <saml:Attribute Name="urn:oid:2.5.4.3" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+    //       <saml:AttributeValue xsi:type="xs:string">Anton Banton Cantonsen</saml:AttributeValue>
+    //     </saml:Attribute>
+    //     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.6" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+    //       <saml:AttributeValue xsi:type="xs:string">joe@this.is.not.a.valid.idp</saml:AttributeValue>
+    //     </saml:Attribute>
+    //     <saml:Attribute Name="urn:oid:0.9.2342.19200300.100.1.3" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+    //       <saml:AttributeValue xsi:type="xs:string">joe@example.com</saml:AttributeValue>
+    //     </saml:Attribute>
+    //     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.25178.1.2.9" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+    //       <saml:AttributeValue xsi:type="xs:string">this.is.not.a.valid.idp</saml:AttributeValue>
+    //     </saml:Attribute>
+    //     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.25178.1.2.10" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+    //       <saml:AttributeValue xsi:type="xs:string">urn:mace:terena.org:schac:homeOrganizationType:int:other</saml:AttributeValue>
+    //     </saml:Attribute>
+    //     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.1" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+    //       <saml:AttributeValue xsi:type="xs:string">student</saml:AttributeValue>
+    //       <saml:AttributeValue xsi:type="xs:string">member</saml:AttributeValue>
+    //     </saml:Attribute>
+    //     <saml:Attribute Name="urn:oid:2.16.840.1.113730.3.1.241" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+    //       <saml:AttributeValue xsi:type="xs:string">Anton Banton Cantonsen</saml:AttributeValue>
+    //     </saml:Attribute>
+    //     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.10" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+    //       <saml:AttributeValue xsi:type="xs:string">WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77</saml:AttributeValue>
+    //     </saml:Attribute>
+    //   </saml:AttributeStatement>
+}
+
+func ExampleFullAttributesetKrib() {
+	hub := DoRunTestKrib(nil)
+	attributes := hub.Newresponse.Query(nil, "//saml:AttributeStatement")[0]
+//	log.Println(hub.Newresponse.Pp())
 	fmt.Println(hub.Newresponse.Dump2(attributes))
 	// Output:
     // <saml:AttributeStatement>
@@ -356,6 +392,8 @@ func ExampleUnknownSPError() {
 	// Metadata for entity: https://www.example.com/unknownentity not found
 }
 
+// Use the line below for new birkservers
+// Metadata for entity: https://birk.wayf.dk/birk.php/www.example.com/unknownentity not found
 func ExampleUnknownIDPError() {
 	m := modsset{"requestmods": mods{mod{"./@Destination", "https://birk.wayf.dk/birk.php/www.example.com/unknownentity"}}}
 	_ = DoRunTestBirk(m)
