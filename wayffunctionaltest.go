@@ -304,9 +304,13 @@ func (tp *Testparams) sendRequest(url *url.URL, server, method, body string, coo
 //     if the value starts with "+ " the the node content is prefixed with the rest of the value
 //     Otherwise the node content is replaced with the value
 func ApplyMods(xp *gosaml.Xp, m mods) {
+    //log.Printf("%+v\n", m)
+    //log.Println(xp.X2s())
     for _, change := range m {
         if change.value == "" {
+            //log.Printf("changeval: '%s'\n", change.value)
 	        for _, element := range xp.Query(nil, change.path) {
+	            //log.Printf("unlink: %s\n", change.path)
 	            xp.UnlinkNode(element)
 	        }
 	    } else if strings.HasPrefix(change.value, "+ ") {
@@ -317,8 +321,8 @@ func ApplyMods(xp *gosaml.Xp, m mods) {
         } else {
             xp.QueryDashP(nil, change.path, change.value, nil)
         }
-        //log.Println(xp.Pp())
     }
+    //log.Println(xp.X2s())
 }
 
 // DoRunTestHub runs a test on the hub - applying the necessary modifications on the way.

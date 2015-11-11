@@ -172,6 +172,7 @@ func ExampleAttributeNameFormat() {
 // ExamplePersistentNameID tests that the persistent nameID (and eptid) is the same from both the hub and BIRK
 func ExamplePersistentNameID() {
 	m := modsset{"requestmods": mods{mod{"/samlp:AuthnRequest/samlp:NameIDPolicy[1]/@Format", "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent"}}}
+	// BIRK always sends NameIDPolicy/@Format=transient - but respects what the hub sends back - thus we need to fix the request BIRK sends to the hub (WAYFMMISC-940)
     n := modsset{"birkrequestmods": m["requestmods"]}
     hub := DoRunTestHub(m)
     birk := DoRunTestBirk(n)
@@ -180,7 +181,6 @@ func ExamplePersistentNameID() {
 		nameidformat := samlresponse.Query1(nil, "//saml:NameID/@Format")
 		nameid := samlresponse.Query1(nil, "//saml:NameID")
 		eptid := samlresponse.Query1(nil, "//saml:Attribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10']/saml:AttributeValue")
-
 		fmt.Printf("%s %s %s\n", nameidformat, nameid, eptid)
 	}
 	// Output:
@@ -188,8 +188,46 @@ func ExamplePersistentNameID() {
     // urn:oasis:names:tc:SAML:2.0:nameid-format:persistent WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77 WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77
 }
 
+// ExampleTransientNameID tests that the transient nameID (and eptid) is the same from both the hub and BIRK
+func ExampleTransientNameID() {
+	m := modsset{"requestmods": mods{mod{"/samlp:AuthnRequest/samlp:NameIDPolicy[1]/@Format", "urn:oasis:names:tc:SAML:2.0:nameid-format:transient"}}}
+	// BIRK always sends NameIDPolicy/@Format=transient - but respects what the hub sends back - thus we need to fix the request BIRK sends to the hub (WAYFMMISC-940)
+    n := modsset{"birkrequestmods": m["requestmods"]}
+    hub := DoRunTestHub(m)
+    birk := DoRunTestBirk(n)
+    for _, tp := range []*Testparams{hub, birk} {
+    	samlresponse := gosaml.Html2SAMLResponse(tp.Responsebody)
+		nameidformat := samlresponse.Query1(nil, "//saml:NameID/@Format")
+		nameid := samlresponse.Query1(nil, "//saml:NameID")
+		eptid := samlresponse.Query1(nil, "//saml:Attribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10']/saml:AttributeValue")
+		fmt.Printf("%s %t %s\n", nameidformat, nameid != "", eptid)
+	}
+	// Output:
+    // urn:oasis:names:tc:SAML:2.0:nameid-format:transient true WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77
+    // urn:oasis:names:tc:SAML:2.0:nameid-format:transient true WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77
+}
+
+// ExampleUnspecifiedNameID tests that the
+func ExampleUnspecifiedNameID() {
+	m := modsset{"requestmods": mods{mod{"/samlp:AuthnRequest/samlp:NameIDPolicy[1]/@Format", "urn:oasis:names:tc:SAML:2.0:nameid-format:unspecified"}}}
+	// BIRK always sends NameIDPolicy/@Format=transient - but respects what the hub sends back - thus we need to fix the request BIRK sends to the hub (WAYFMMISC-940)
+    n := modsset{"birkrequestmods": m["requestmods"]}
+    hub := DoRunTestHub(m)
+    birk := DoRunTestBirk(n)
+    for _, tp := range []*Testparams{hub, birk} {
+    	samlresponse := gosaml.Html2SAMLResponse(tp.Responsebody)
+		nameidformat := samlresponse.Query1(nil, "//saml:NameID/@Format")
+		nameid := samlresponse.Query1(nil, "//saml:NameID")
+		eptid := samlresponse.Query1(nil, "//saml:Attribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10']/saml:AttributeValue")
+		fmt.Printf("%s %t %s\n", nameidformat, nameid != "", eptid)
+	}
+	// Output:
+    // urn:oasis:names:tc:SAML:2.0:nameid-format:transient true WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77
+    // urn:oasis:names:tc:SAML:2.0:nameid-format:transient true WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77
+}
+
 // ExampleFullAttributeset1 test that the full attributeset is delivered to the default test sp
-func ExampleFullAttributeset1() {
+func ExampleFullAttributeset() {
 	hub := DoRunTestHub(nil)
 	attributes := hub.Newresponse.Query(nil, "//saml:AttributeStatement")[0]
 	fmt.Println(hub.Newresponse.Dump2(attributes))
@@ -258,8 +296,8 @@ func ExampleFullAttributesetKrib() {
     //   </saml:AttributeStatement>
 }
 
-// ExampleFullAttributeset2 test that the full attributeset is delivered to the PHPH service
-func ExampleFullAttributeset2() {
+// ExampleFullAttributesetSP2 test that the full attributeset is delivered to the PHPH service
+func ExampleFullAttributesetSP2() {
     defaulttp = &Testparams{Spmd: gosaml.NewMD(mdq+"HUB-OPS", "https://metadata.wayf.dk/PHPh")}
 	hub := DoRunTestHub(nil)
 	attributes := hub.Newresponse.Query(nil, "//saml:AttributeStatement")[0]
@@ -293,9 +331,20 @@ func ExampleFullEnctryptedAttributeset() {
     //   </saml:AttributeStatement>
 }
 
-// ExampleSignError1 tests if the hub and BIRK reacts on errors in the signing of responses and assertions
-func ExampleSignError1() {
-	m := modsset{"responsemods": mods{mod{"//ds:SignatureValue", "+ 1234"}}}
+// ExampleSignErrorModifiedContent tests if the hub and BIRK reacts on errors in the signing of responses and assertions
+func ExampleSignErrorModifiedContent() {
+	m := modsset{"responsemods": mods{mod{"//saml:Assertion/saml:Issuer", "+ 1234"}}}
+	_ = DoRunTestHub(m)
+	_ = DoRunTestBirk(m)
+
+	// Output:
+	// Reference validation failed
+	// Error verifying signature on incoming SAMLResponse
+}
+
+// ExampleSignErrorModifiedContent tests if the hub and BIRK reacts on errors in the signing of responses and assertions
+func ExampleSignErrorModifiedSignature() {
+	m := modsset{"responsemods": mods{mod{"//saml:Assertion//ds:SignatureValue", "+ 1234"}}}
 	_ = DoRunTestHub(m)
 	_ = DoRunTestBirk(m)
 
@@ -304,8 +353,20 @@ func ExampleSignError1() {
 	// Error verifying signature on incoming SAMLResponse
 }
 
-// ExampleSignError2 tests if the hub and BIRK reacts on errors in the signing of responses and assertions
-func ExampleSignError2() {
+// ExampleNoSignatureError tests if the hub and BIRK reacts assertions that are not signed
+func ExampleNoSignatureError() {
+	m := modsset{"responsemods": mods{mod{"//ds:Signature", ""}}}
+	_ = DoRunTestHub(m)
+	_ = DoRunTestBirk(m)
+
+	// Output:
+	// Neither the assertion nor the response was signed.
+	// Error verifying signature on incoming SAMLResponse
+}
+
+// ExampleUnknownKeySignatureError tests if the hub and BIRK reacts on signing with an unknown key
+func ExampleUnknownKeySignatureError() {
+    // Just a random private key - not used for anything else
     pk := `-----BEGIN RSA PRIVATE KEY-----
 MIIEogIBAAKCAQEAsd0urclhDMeNqfmmES6LxVf3mK6CAX3vER1Te8QNLsd1iUEq
 inmx+j6TqoyLBuVrQkOSMn7pPQMobjpca81KsWcS00RvZCNAgreTj4jOzfIouSml
@@ -337,7 +398,7 @@ mYqIGJZzLM/wk1u/CG52i+zDOiYbeiYNZc7qhIFU9ueinr88YZo=
 
     defaulttp = &Testparams{Privatekey: pk, Privatekeypw: "-"}
 	_ = DoRunTestHub(nil)
-// need to do resign before sending to birk - not able pt
+// need to do resign before sending to birk - not able to do that pt
 //	_ = DoRunTestBirk(nil)
 
 	// Output:
@@ -352,6 +413,16 @@ func ExampleRequestSchemaError() {
 	// Output:
 	// Invalid value of boolean attribute 'IsPassive': 'isfalse'
 	// SAMLMessage does not validate according to schema: , error(s): line: 2:0, error: Element '{urn:oasis:names:tc:SAML:2.0:protocol}AuthnRequest', attribute 'IsPassive': 'isfalse' is not a valid value of the atomic type 'xs:boolean'.
+}
+
+// ExampleResponseSchemaError tests that the HUB and BIRK reacts on schema errors in requests
+func ExampleResponseSchemaError() {
+	m := modsset{"responsemods": mods{mod{"./@IssueInstant", "isfalse"}}}
+	_ = DoRunTestHub(m)
+	_ = DoRunTestBirk(m)
+	// Output:
+	// Invalid SAML2 timestamp passed to parseSAML2Time: isfalse
+	// SAMLMessage does not validate according to schema: , error(s): line: 2:0, error: Element '{urn:oasis:names:tc:SAML:2.0:protocol}Response', attribute 'IssueInstant': 'isfalse' is not a valid value of the atomic type 'xs:dateTime'.
 }
 
 // ExampleNoEPPNError tests that the hub does not accept assertions with no eppn
