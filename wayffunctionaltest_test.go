@@ -1,15 +1,18 @@
 package wayffunctionaltest
 
 import (
+    "bytes"
     "flag"
 	"fmt"
 	"github.com/wayf-dk/gosaml"
+    "io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"testing"
+	"text/template"
 )
 
 type mod struct {
@@ -50,7 +53,49 @@ var (
 	birk = flag.String("birk", "birk.wayf.dk", "the hostname for the BIRK server to be tested")
 	birkbe = flag.String("birkbe", "", "the birk backend server")
 	trace = flag.Bool("xrace", false, "trace the request/response flow")
+	env = flag.String("env", "dev", "which environment to test - if not dev")
+
+	old, r, w *os.File
+    outC = make(chan string)
+    templatevalues = map[string]map[string]string {
+        "prod" : {
+            "eptid": "WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77",
+            "pnameid": "WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77",
+        },
+        "dev" : {
+            "eptid": "WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77",
+            "pnameid": "WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77",
+        },
+    }
 )
+
+func stdoutstart() {
+    old = os.Stdout // keep backup of the real stdout
+    r, w, _ = os.Pipe()
+    os.Stdout = w
+    outC = make(chan string)
+    // copy the output in a separate goroutine so printing can't block indefinitely
+    go func() {
+        var buf bytes.Buffer
+        io.Copy(&buf, r)
+        outC <- buf.String()
+    }()
+}
+
+func stdoutend(t *testing.T, expected string) {
+    // back to normal state
+    var b bytes.Buffer
+    w.Close()
+    os.Stdout = old // restoring the real stdout
+    got := <-outC
+
+	tmpl := template.Must(template.New("expected").Parse(expected))
+    _ = tmpl.Execute(&b, templatevalues[*env])
+    expected = b.String()
+    if expected != got {
+        t.Errorf("\nexpected:\n%s\ngot:\n%s\n", expected, got)
+    }
+}
 
 func TestMain(m *testing.M) {
 	flag.Parse()
@@ -133,10 +178,10 @@ func b(attrs map[string][]string) (ats *gosaml.Xp) {
 	return
 }
 
-// ExampleAttributeNameFormat tests if the hub delivers the attributes in the correct format - only one (or none) is allowed
+// TestAttributeNameFormat tests if the hub delivers the attributes in the correct format - only one (or none) is allowed
 // Currently if none is specified we deliver both but lie about the format so we say that it is basic even though it actually is uri
 // As PHPH always uses uri we just count the number of RequestedAttributes
-func ExampleAttributeNameFormat() {
+func TestAttributeNameFormat(t *testing.T) {
 	const (
 		mdcounturi   = "count(//md:RequestedAttribute[@NameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:uri'])"
 		mdcountbasic = "count(//md:RequestedAttribute[@NameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:basic'])"
@@ -144,7 +189,7 @@ func ExampleAttributeNameFormat() {
 		ascounturi   = "count(//saml:Attribute[@NameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:uri'])"
 		ascountbasic = "count(//saml:Attribute[@NameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:basic'])"
 	)
-
+    stdoutstart()
 	spmd := gosaml.NewMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed", "")
 	uri := spmd.Query(nil, "//wayf:wayf[wayf:AttributeNameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:uri' and wayf:redirect.validate='']/../..")
 	urimd := gosaml.NewXpFromNode(uri[0])
@@ -163,14 +208,16 @@ func ExampleAttributeNameFormat() {
 		basiccount := samlresponse.QueryNumber(nil, ascountbasic)
 		fmt.Printf("%t %t %t\n", basiccount == requested * 2, uricount == requested, basiccount == requested)
 	}
-	// Output:
-	// false true false
-	// false false true
-	// true false false
+	expected := `false true false
+false false true
+true false false
+`
+	stdoutend(t, expected)
 }
 
-// ExamplePersistentNameID tests that the persistent nameID (and eptid) is the same from both the hub and BIRK
-func ExamplePersistentNameID() {
+// TestPersistentNameID tests that the persistent nameID (and eptid) is the same from both the hub and BIRK
+func TestPersistentNameID(t *testing.T) {
+    stdoutstart()
 	m := modsset{"requestmods": mods{mod{"/samlp:AuthnRequest/samlp:NameIDPolicy[1]/@Format", "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent"}}}
 	// BIRK always sends NameIDPolicy/@Format=transient - but respects what the hub sends back - thus we need to fix the request BIRK sends to the hub (WAYFMMISC-940)
     n := modsset{"birkrequestmods": m["requestmods"]}
@@ -183,13 +230,15 @@ func ExamplePersistentNameID() {
 		eptid := samlresponse.Query1(nil, "//saml:Attribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10']/saml:AttributeValue")
 		fmt.Printf("%s %s %s\n", nameidformat, nameid, eptid)
 	}
-	// Output:
-    // urn:oasis:names:tc:SAML:2.0:nameid-format:persistent WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77 WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77
-    // urn:oasis:names:tc:SAML:2.0:nameid-format:persistent WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77 WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77
+    expected := `urn:oasis:names:tc:SAML:2.0:nameid-format:persistent {{.pnameid}} {{.eptid}}
+urn:oasis:names:tc:SAML:2.0:nameid-format:persistent {{.pnameid}} {{.eptid}}
+`
+    stdoutend(t, expected)
 }
 
-// ExampleTransientNameID tests that the transient nameID (and eptid) is the same from both the hub and BIRK
-func ExampleTransientNameID() {
+// TestTransientNameID tests that the transient nameID (and eptid) is the same from both the hub and BIRK
+func TestTransientNameID(t *testing.T) {
+    stdoutstart()
 	m := modsset{"requestmods": mods{mod{"/samlp:AuthnRequest/samlp:NameIDPolicy[1]/@Format", "urn:oasis:names:tc:SAML:2.0:nameid-format:transient"}}}
 	// BIRK always sends NameIDPolicy/@Format=transient - but respects what the hub sends back - thus we need to fix the request BIRK sends to the hub (WAYFMMISC-940)
     n := modsset{"birkrequestmods": m["requestmods"]}
@@ -202,13 +251,15 @@ func ExampleTransientNameID() {
 		eptid := samlresponse.Query1(nil, "//saml:Attribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10']/saml:AttributeValue")
 		fmt.Printf("%s %t %s\n", nameidformat, nameid != "", eptid)
 	}
-	// Output:
-    // urn:oasis:names:tc:SAML:2.0:nameid-format:transient true WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77
-    // urn:oasis:names:tc:SAML:2.0:nameid-format:transient true WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77
+    expected := `urn:oasis:names:tc:SAML:2.0:nameid-format:transient true WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77
+urn:oasis:names:tc:SAML:2.0:nameid-format:transient true WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77
+`
+    stdoutend(t, expected)
 }
 
-// ExampleUnspecifiedNameID tests that the
-func ExampleUnspecifiedNameID() {
+// TestUnspecifiedNameID tests that the
+func TestUnspecifiedNameID(t *testing.T) {
+    stdoutstart()
 	m := modsset{"requestmods": mods{mod{"/samlp:AuthnRequest/samlp:NameIDPolicy[1]/@Format", "urn:oasis:names:tc:SAML:2.0:nameid-format:unspecified"}}}
 	// BIRK always sends NameIDPolicy/@Format=transient - but respects what the hub sends back - thus we need to fix the request BIRK sends to the hub (WAYFMMISC-940)
     n := modsset{"birkrequestmods": m["requestmods"]}
@@ -221,151 +272,169 @@ func ExampleUnspecifiedNameID() {
 		eptid := samlresponse.Query1(nil, "//saml:Attribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10']/saml:AttributeValue")
 		fmt.Printf("%s %t %s\n", nameidformat, nameid != "", eptid)
 	}
-	// Output:
-    // urn:oasis:names:tc:SAML:2.0:nameid-format:transient true WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77
-    // urn:oasis:names:tc:SAML:2.0:nameid-format:transient true WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77
+    expected := `urn:oasis:names:tc:SAML:2.0:nameid-format:transient true WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77
+urn:oasis:names:tc:SAML:2.0:nameid-format:transient true WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77
+`
+    stdoutend(t, expected)
 }
 
-// ExampleFullAttributeset1 test that the full attributeset is delivered to the default test sp
-func ExampleFullAttributeset() {
+// TestFullAttributeset1 test that the full attributeset is delivered to the default test sp
+func TestFullAttributeset(t *testing.T) {
+    stdoutstart()
 	hub := DoRunTestHub(nil)
 	attributes := hub.Newresponse.Query(nil, "//saml:AttributeStatement")[0]
 	fmt.Println(hub.Newresponse.Dump2(attributes))
-	// Output:
-    // <saml:AttributeStatement>
-    //     <saml:Attribute Name="urn:oid:2.5.4.3" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
-    //       <saml:AttributeValue xsi:type="xs:string">Anton Banton Cantonsen</saml:AttributeValue>
-    //     </saml:Attribute>
-    //     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.6" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
-    //       <saml:AttributeValue xsi:type="xs:string">joe@this.is.not.a.valid.idp</saml:AttributeValue>
-    //     </saml:Attribute>
-    //     <saml:Attribute Name="urn:oid:0.9.2342.19200300.100.1.3" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
-    //       <saml:AttributeValue xsi:type="xs:string">joe@example.com</saml:AttributeValue>
-    //     </saml:Attribute>
-    //     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.25178.1.2.9" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
-    //       <saml:AttributeValue xsi:type="xs:string">this.is.not.a.valid.idp</saml:AttributeValue>
-    //     </saml:Attribute>
-    //     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.25178.1.2.10" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
-    //       <saml:AttributeValue xsi:type="xs:string">urn:mace:terena.org:schac:homeOrganizationType:int:other</saml:AttributeValue>
-    //     </saml:Attribute>
-    //     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.1" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
-    //       <saml:AttributeValue xsi:type="xs:string">student</saml:AttributeValue>
-    //       <saml:AttributeValue xsi:type="xs:string">member</saml:AttributeValue>
-    //     </saml:Attribute>
-    //     <saml:Attribute Name="urn:oid:2.16.840.1.113730.3.1.241" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
-    //       <saml:AttributeValue xsi:type="xs:string">Anton Banton Cantonsen</saml:AttributeValue>
-    //     </saml:Attribute>
-    //     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.10" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
-    //       <saml:AttributeValue xsi:type="xs:string">WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77</saml:AttributeValue>
-    //     </saml:Attribute>
-    //   </saml:AttributeStatement>
+    expected := `<saml:AttributeStatement>
+    <saml:Attribute Name="urn:oid:2.5.4.3" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+      <saml:AttributeValue xsi:type="xs:string">Anton Banton Cantonsen</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.6" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+      <saml:AttributeValue xsi:type="xs:string">joe@this.is.not.a.valid.idp</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:0.9.2342.19200300.100.1.3" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+      <saml:AttributeValue xsi:type="xs:string">joe@example.com</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:1.3.6.1.4.1.25178.1.2.9" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+      <saml:AttributeValue xsi:type="xs:string">this.is.not.a.valid.idp</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:1.3.6.1.4.1.25178.1.2.10" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+      <saml:AttributeValue xsi:type="xs:string">urn:mace:terena.org:schac:homeOrganizationType:int:other</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.1" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+      <saml:AttributeValue xsi:type="xs:string">student</saml:AttributeValue>
+      <saml:AttributeValue xsi:type="xs:string">member</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:2.16.840.1.113730.3.1.241" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+      <saml:AttributeValue xsi:type="xs:string">Anton Banton Cantonsen</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.10" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+      <saml:AttributeValue xsi:type="xs:string">WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77</saml:AttributeValue>
+    </saml:Attribute>
+  </saml:AttributeStatement>
+`
+    stdoutend(t, expected)
 }
 
-func ExampleFullAttributesetKrib() {
+func TestFullAttributesetKrib(t *testing.T) {
+    stdoutstart()
 	hub := DoRunTestKrib(nil)
 	attributes := hub.Newresponse.Query(nil, "//saml:AttributeStatement")[0]
-//	log.Println(hub.Newresponse.Pp())
 	fmt.Println(hub.Newresponse.Dump2(attributes))
-	// Output:
-    // <saml:AttributeStatement>
-    //     <saml:Attribute Name="urn:oid:2.5.4.3" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
-    //       <saml:AttributeValue xsi:type="xs:string">Anton Banton Cantonsen</saml:AttributeValue>
-    //     </saml:Attribute>
-    //     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.6" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
-    //       <saml:AttributeValue xsi:type="xs:string">joe@this.is.not.a.valid.idp</saml:AttributeValue>
-    //     </saml:Attribute>
-    //     <saml:Attribute Name="urn:oid:0.9.2342.19200300.100.1.3" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
-    //       <saml:AttributeValue xsi:type="xs:string">joe@example.com</saml:AttributeValue>
-    //     </saml:Attribute>
-    //     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.25178.1.2.9" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
-    //       <saml:AttributeValue xsi:type="xs:string">this.is.not.a.valid.idp</saml:AttributeValue>
-    //     </saml:Attribute>
-    //     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.25178.1.2.10" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
-    //       <saml:AttributeValue xsi:type="xs:string">urn:mace:terena.org:schac:homeOrganizationType:int:other</saml:AttributeValue>
-    //     </saml:Attribute>
-    //     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.1" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
-    //       <saml:AttributeValue xsi:type="xs:string">student</saml:AttributeValue>
-    //       <saml:AttributeValue xsi:type="xs:string">member</saml:AttributeValue>
-    //     </saml:Attribute>
-    //     <saml:Attribute Name="urn:oid:2.16.840.1.113730.3.1.241" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
-    //       <saml:AttributeValue xsi:type="xs:string">Anton Banton Cantonsen</saml:AttributeValue>
-    //     </saml:Attribute>
-    //     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.10" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
-    //       <saml:AttributeValue xsi:type="xs:string">WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77</saml:AttributeValue>
-    //     </saml:Attribute>
-    //   </saml:AttributeStatement>
+    expected := `<saml:AttributeStatement>
+    <saml:Attribute Name="urn:oid:2.5.4.3" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+      <saml:AttributeValue xsi:type="xs:string">Anton Banton Cantonsen</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.6" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+      <saml:AttributeValue xsi:type="xs:string">joe@this.is.not.a.valid.idp</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:0.9.2342.19200300.100.1.3" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+      <saml:AttributeValue xsi:type="xs:string">joe@example.com</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:1.3.6.1.4.1.25178.1.2.9" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+      <saml:AttributeValue xsi:type="xs:string">this.is.not.a.valid.idp</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:1.3.6.1.4.1.25178.1.2.10" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+      <saml:AttributeValue xsi:type="xs:string">urn:mace:terena.org:schac:homeOrganizationType:int:other</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.1" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+      <saml:AttributeValue xsi:type="xs:string">student</saml:AttributeValue>
+      <saml:AttributeValue xsi:type="xs:string">member</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:2.16.840.1.113730.3.1.241" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+      <saml:AttributeValue xsi:type="xs:string">Anton Banton Cantonsen</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.10" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+      <saml:AttributeValue xsi:type="xs:string">WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77</saml:AttributeValue>
+    </saml:Attribute>
+  </saml:AttributeStatement>
+`
+    stdoutend(t, expected)
 }
 
-// ExampleFullAttributesetSP2 test that the full attributeset is delivered to the PHPH service
-func ExampleFullAttributesetSP2() {
+// TestFullAttributesetSP2 test that the full attributeset is delivered to the PHPH service
+func TestFullAttributesetSP2(t *testing.T) {
+    stdoutstart()
     defaulttp = &Testparams{Spmd: gosaml.NewMD(mdq+"HUB-OPS", "https://metadata.wayf.dk/PHPh")}
 	hub := DoRunTestHub(nil)
 	attributes := hub.Newresponse.Query(nil, "//saml:AttributeStatement")[0]
 	fmt.Println(hub.Newresponse.Dump2(attributes))
-	// Output:
-    // <saml:AttributeStatement>
-    //     <saml:Attribute Name="eduPersonPrincipalName" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
-    //       <saml:AttributeValue xsi:type="xs:string">joe@this.is.not.a.valid.idp</saml:AttributeValue>
-    //     </saml:Attribute>
-    //     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.6" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
-    //       <saml:AttributeValue xsi:type="xs:string">joe@this.is.not.a.valid.idp</saml:AttributeValue>
-    //     </saml:Attribute>
-    //   </saml:AttributeStatement>
+    expected := `<saml:AttributeStatement>
+    <saml:Attribute Name="eduPersonPrincipalName" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
+      <saml:AttributeValue xsi:type="xs:string">joe@this.is.not.a.valid.idp</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.6" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
+      <saml:AttributeValue xsi:type="xs:string">joe@this.is.not.a.valid.idp</saml:AttributeValue>
+    </saml:Attribute>
+  </saml:AttributeStatement>
+`
+    stdoutend(t, expected)
 }
 
-// ExampleFullAttributeset3 test that the full attributeset is delivered to the default test sp - the assertion is encrypted
-func ExampleFullEnctryptedAttributeset() {
+// TestFullAttributeset3 test that the full attributeset is delivered to the default test sp - the assertion is encrypted
+func TestFullEnctryptedAttributeset(t *testing.T) {
+    stdoutstart()
     defaulttp = &Testparams{Encryptresponse: true, Spmd: gosaml.NewMD(mdq+"HUB-OPS", "https://metadata.wayf.dk/PHPh")}
 	hub := DoRunTestHub(nil)
     if attributes := hub.Newresponse.Query(nil, "//saml:AttributeStatement"); attributes != nil {
 	    fmt.Println(hub.Newresponse.Dump2(attributes[0]))
 	}
-	// Output:
-    // <saml:AttributeStatement>
-    //     <saml:Attribute Name="eduPersonPrincipalName" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
-    //       <saml:AttributeValue xsi:type="xs:string">joe@this.is.not.a.valid.idp</saml:AttributeValue>
-    //     </saml:Attribute>
-    //     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.6" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
-    //       <saml:AttributeValue xsi:type="xs:string">joe@this.is.not.a.valid.idp</saml:AttributeValue>
-    //     </saml:Attribute>
-    //   </saml:AttributeStatement>
+    expected := `<saml:AttributeStatement>
+    <saml:Attribute Name="eduPersonPrincipalName" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
+      <saml:AttributeValue xsi:type="xs:string">joe@this.is.not.a.valid.idp</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.6" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
+      <saml:AttributeValue xsi:type="xs:string">joe@this.is.not.a.valid.idp</saml:AttributeValue>
+    </saml:Attribute>
+  </saml:AttributeStatement>
+`
+    stdoutend(t, expected)
 }
 
-// ExampleSignErrorModifiedContent tests if the hub and BIRK reacts on errors in the signing of responses and assertions
-func ExampleSignErrorModifiedContent() {
+// TestSignErrorModifiedContent tests if the hub and BIRK reacts on errors in the signing of responses and assertions
+func TestSignErrorModifiedContent(t *testing.T) {
+    stdoutstart()
 	m := modsset{"responsemods": mods{mod{"//saml:Assertion/saml:Issuer", "+ 1234"}}}
 	_ = DoRunTestHub(m)
 	_ = DoRunTestBirk(m)
 
-	// Output:
-	// Reference validation failed
-	// Error verifying signature on incoming SAMLResponse
+    expected := `Reference validation failed
+Error verifying signature on incoming SAMLResponse
+
+`
+    stdoutend(t, expected)
 }
 
-// ExampleSignErrorModifiedContent tests if the hub and BIRK reacts on errors in the signing of responses and assertions
-func ExampleSignErrorModifiedSignature() {
+// TestSignErrorModifiedContent tests if the hub and BIRK reacts on errors in the signing of responses and assertions
+func TestSignErrorModifiedSignature(t *testing.T) {
+    stdoutstart()
 	m := modsset{"responsemods": mods{mod{"//saml:Assertion//ds:SignatureValue", "+ 1234"}}}
 	_ = DoRunTestHub(m)
 	_ = DoRunTestBirk(m)
 
-	// Output:
-	// Unable to validate Signature
-	// Error verifying signature on incoming SAMLResponse
+    expected := `Unable to validate Signature
+Error verifying signature on incoming SAMLResponse
+
+`
+    stdoutend(t, expected)
 }
 
-// ExampleNoSignatureError tests if the hub and BIRK reacts assertions that are not signed
-func ExampleNoSignatureError() {
+// TestNoSignatureError tests if the hub and BIRK reacts assertions that are not signed
+func TestNoSignatureError(t *testing.T) {
+    stdoutstart()
 	m := modsset{"responsemods": mods{mod{"//ds:Signature", ""}}}
 	_ = DoRunTestHub(m)
 	_ = DoRunTestBirk(m)
 
-	// Output:
-	// Neither the assertion nor the response was signed.
-	// Error verifying signature on incoming SAMLResponse
+    expected := `Neither the assertion nor the response was signed.
+Error verifying signature on incoming SAMLResponse
+
+`
+    stdoutend(t, expected)
 }
 
-// ExampleUnknownKeySignatureError tests if the hub and BIRK reacts on signing with an unknown key
-func ExampleUnknownKeySignatureError() {
+// TestUnknownKeySignatureError tests if the hub and BIRK reacts on signing with an unknown key
+func TestUnknownKeySignatureError(t *testing.T) {
+    stdoutstart()
     // Just a random private key - not used for anything else
     pk := `-----BEGIN RSA PRIVATE KEY-----
 MIIEogIBAAKCAQEAsd0urclhDMeNqfmmES6LxVf3mK6CAX3vER1Te8QNLsd1iUEq
@@ -401,73 +470,96 @@ mYqIGJZzLM/wk1u/CG52i+zDOiYbeiYNZc7qhIFU9ueinr88YZo=
 // need to do resign before sending to birk - not able to do that pt
 //	_ = DoRunTestBirk(nil)
 
-	// Output:
-	// Unable to validate Signature
+    expected := `Unable to validate Signature
+`
+    stdoutend(t, expected)
 }
 
-// ExampleRequestSchemaError tests that the HUB and BIRK reacts on schema errors in requests
-func ExampleRequestSchemaError() {
+// TestRequestSchemaError tests that the HUB and BIRK reacts on schema errors in requests
+func TestRequestSchemaError(t *testing.T) {
+    stdoutstart()
 	m := modsset{"requestmods": mods{mod{"./@IsPassive", "isfalse"}}}
 	_ = DoRunTestHub(m)
 	_ = DoRunTestBirk(m)
-	// Output:
-	// Invalid value of boolean attribute 'IsPassive': 'isfalse'
-	// SAMLMessage does not validate according to schema: , error(s): line: 2:0, error: Element '{urn:oasis:names:tc:SAML:2.0:protocol}AuthnRequest', attribute 'IsPassive': 'isfalse' is not a valid value of the atomic type 'xs:boolean'.
+    expected := `Invalid value of boolean attribute 'IsPassive': 'isfalse'
+SAMLMessage does not validate according to schema: , error(s): line: 2:0, error: Element '{urn:oasis:names:tc:SAML:2.0:protocol}AuthnRequest', attribute 'IsPassive': 'isfalse' is not a valid value of the atomic type 'xs:boolean'.
+
+
+`
+    stdoutend(t, expected)
 }
 
-// ExampleResponseSchemaError tests that the HUB and BIRK reacts on schema errors in requests
-func ExampleResponseSchemaError() {
+// TestResponseSchemaError tests that the HUB and BIRK reacts on schema errors in requests
+func TestResponseSchemaError(t *testing.T) {
+    stdoutstart()
 	m := modsset{"responsemods": mods{mod{"./@IssueInstant", "isfalse"}}}
 	_ = DoRunTestHub(m)
 	_ = DoRunTestBirk(m)
-	// Output:
-	// Invalid SAML2 timestamp passed to parseSAML2Time: isfalse
-	// SAMLMessage does not validate according to schema: , error(s): line: 2:0, error: Element '{urn:oasis:names:tc:SAML:2.0:protocol}Response', attribute 'IssueInstant': 'isfalse' is not a valid value of the atomic type 'xs:dateTime'.
+    expected := `Invalid SAML2 timestamp passed to parseSAML2Time: isfalse
+SAMLMessage does not validate according to schema: , error(s): line: 2:0, error: Element '{urn:oasis:names:tc:SAML:2.0:protocol}Response', attribute 'IssueInstant': 'isfalse' is not a valid value of the atomic type 'xs:dateTime'.
+
+
+`
+    stdoutend(t, expected)
 }
 
-// ExampleNoEPPNError tests that the hub does not accept assertions with no eppn
-func ExampleNoEPPNError() {
+// TestNoEPPNError tests that the hub does not accept assertions with no eppn
+func TestNoEPPNError(t *testing.T) {
+    stdoutstart()
 	m := modsset{"attributemods": mods{mod{`/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]`, ""}}}
 	_ = DoRunTestHub(m)
-	// Output:
-	// mandatory: eduPersonPrincipalName
+    expected := `mandatory: eduPersonPrincipalName
+`
+    stdoutend(t, expected)
 }
 
-// ExampleEPPNScopingError tests that the hub does not accept scoping errors in eppn - currently it does
-func ExampleEPPNScopingError() {
+// TestEPPNScopingError tests that the hub does not accept scoping errors in eppn - currently it does
+func TestEPPNScopingError(t *testing.T) {
+    stdoutstart()
 	m := modsset{"attributemods": mods{mod{`/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue`, "joe@example.com"}}}
 	_ = DoRunTestHub(m)
-	// Output:
+    expected := ``
+    stdoutend(t, expected)
 }
 
-// ExampleNoLocalpartInEPPNError tests that the hub does not accept eppn with no localpart - currently it does
-func ExampleNoLocalpartInEPPNError() {
+// TestNoLocalpartInEPPNError tests that the hub does not accept eppn with no localpart - currently it does
+func TestNoLocalpartInEPPNError(t *testing.T) {
+    stdoutstart()
 	m := modsset{"attributemods": mods{mod{`/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue`, "@this.is.not.a.valid.idp"}}}
 	_ = DoRunTestHub(m)
-	// Output:
+    expected := ``
+    stdoutend(t, expected)
 }
 
-// ExampleNoLocalpartInEPPNError tests that the hub does not accept eppn with no domain - currently it does
-func ExampleNoDomainInEPPNError() {
+// TestNoLocalpartInEPPNError tests that the hub does not accept eppn with no domain - currently it does
+func TestNoDomainInEPPNError(t *testing.T) {
+    stdoutstart()
 	m := modsset{"attributemods": mods{mod{`/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue`, "joe"}}}
 	_ = DoRunTestHub(m)
-	// Output:
+    expected := ``
+    stdoutend(t, expected)
 }
 
-func ExampleUnknownSPError() {
+func TestUnknownSPError(t *testing.T) {
+    stdoutstart()
 	m := modsset{"requestmods": mods{mod{"./saml:Issuer", "https://www.example.com/unknownentity"}}}
 	_ = DoRunTestHub(m)
 	_ = DoRunTestBirk(m)
-	// Output:
-	// Metadata not found for entity: https://www.example.com/unknownentity
-	// Metadata for entity: https://www.example.com/unknownentity not found
+    expected := `Metadata not found for entity: https://www.example.com/unknownentity
+Metadata for entity: https://www.example.com/unknownentity not found
+
+`
+    stdoutend(t, expected)
 }
 
 // Use the line below for new birkservers
 // Metadata for entity: https://birk.wayf.dk/birk.php/www.example.com/unknownentity not found
-func ExampleUnknownIDPError() {
+func TestUnknownIDPError(t *testing.T) {
+    stdoutstart()
 	m := modsset{"requestmods": mods{mod{"./@Destination", "https://birk.wayf.dk/birk.php/www.example.com/unknownentity"}}}
 	_ = DoRunTestBirk(m)
-	// Output:
-	// Could not get needed metadata about endpoint: https://birk.wayf.dk/birk.php/www.example.com/unknownentity
+    expected := `Could not get needed metadata about endpoint: https://birk.wayf.dk/birk.php/www.example.com/unknownentity
+
+`
+    stdoutend(t, expected)
 }
