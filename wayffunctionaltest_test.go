@@ -99,7 +99,7 @@ func stdoutend(t *testing.T, expected string) {
 
 func TestMain(m *testing.M) {
 	flag.Parse()
-	log.Printf("hub: %s be: '%s' birk: %s be: '%s'\n", *hub, *hubbe, *birk, *birkbe)
+	log.Printf("hub: %q backend: %q birk: %q backend: %q\n", *hub, *hubbe, *birk, *birkbe)
 	os.Exit(m.Run())
 }
 
