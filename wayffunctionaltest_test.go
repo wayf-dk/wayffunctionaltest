@@ -399,7 +399,6 @@ func TestSignErrorModifiedContent(t *testing.T) {
 
     expected := `Reference validation failed
 Error verifying signature on incoming SAMLResponse
-
 `
     stdoutend(t, expected)
 }
@@ -413,7 +412,6 @@ func TestSignErrorModifiedSignature(t *testing.T) {
 
     expected := `Unable to validate Signature
 Error verifying signature on incoming SAMLResponse
-
 `
     stdoutend(t, expected)
 }
@@ -427,7 +425,6 @@ func TestNoSignatureError(t *testing.T) {
 
     expected := `Neither the assertion nor the response was signed.
 Error verifying signature on incoming SAMLResponse
-
 `
     stdoutend(t, expected)
 }
@@ -483,8 +480,6 @@ func TestRequestSchemaError(t *testing.T) {
 	_ = DoRunTestBirk(m)
     expected := `Invalid value of boolean attribute 'IsPassive': 'isfalse'
 SAMLMessage does not validate according to schema: , error(s): line: 2:0, error: Element '{urn:oasis:names:tc:SAML:2.0:protocol}AuthnRequest', attribute 'IsPassive': 'isfalse' is not a valid value of the atomic type 'xs:boolean'.
-
-
 `
     stdoutend(t, expected)
 }
@@ -497,8 +492,6 @@ func TestResponseSchemaError(t *testing.T) {
 	_ = DoRunTestBirk(m)
     expected := `Invalid SAML2 timestamp passed to parseSAML2Time: isfalse
 SAMLMessage does not validate according to schema: , error(s): line: 2:0, error: Element '{urn:oasis:names:tc:SAML:2.0:protocol}Response', attribute 'IssueInstant': 'isfalse' is not a valid value of the atomic type 'xs:dateTime'.
-
-
 `
     stdoutend(t, expected)
 }
@@ -547,7 +540,6 @@ func TestUnknownSPError(t *testing.T) {
 	_ = DoRunTestBirk(m)
     expected := `Metadata not found for entity: https://www.example.com/unknownentity
 Metadata for entity: https://www.example.com/unknownentity not found
-
 `
     stdoutend(t, expected)
 }
@@ -558,8 +550,7 @@ func TestUnknownIDPError(t *testing.T) {
     stdoutstart()
 	m := modsset{"requestmods": mods{mod{"./@Destination", "https://birk.wayf.dk/birk.php/www.example.com/unknownentity"}}}
 	_ = DoRunTestBirk(m)
-    expected := `Could not get needed metadata about endpoint: https://birk.wayf.dk/birk.php/www.example.com/unknownentity
-
+    expected := `Metadata for entity: https://birk.wayf.dk/birk.php/www.example.com/unknownentity not found
 `
     stdoutend(t, expected)
 }
