@@ -336,14 +336,14 @@ func DoRunTestHub(m modsset) (tp *Testparams) {
     tp.SSOSendRequest()
     if tp.Resp.StatusCode == 500 {
         response := gosaml.NewHtmlXp(tp.Responsebody)
-        fmt.Println(response.Query1(nil, `//a[@id="errormsg"]/text()`))
+        fmt.Println(strings.Trim(response.Query1(nil, `//a[@id="errormsg"]/text()`), "\n "))
         return
     }
     ApplyMods(tp.Newresponse, m["responsemods"])
     tp.SSOSendResponse()
     if tp.Resp.StatusCode == 500 {
         response := gosaml.NewHtmlXp(tp.Responsebody)
-        fmt.Println(response.Query1(nil, `//a[@id="errormsg"]/text()`))
+        fmt.Println(strings.Trim(response.Query1(nil, `//a[@id="errormsg"]/text()`), "\n "))
         return
     }
     return
@@ -361,7 +361,7 @@ func DoRunTestBirk(m modsset) (tp *Testparams) {
     ApplyMods(tp.Initialrequest, m["requestmods"])
     tp.SSOSendRequest1()
     if tp.Resp.StatusCode == 500 {
-    	fmt.Println(strings.SplitN(string(tp.Responsebody), " ", 2)[1])
+    	fmt.Println(strings.Trim(strings.SplitN(string(tp.Responsebody), " ", 2)[1], "\n "))
     	return
     }
     authnrequest := gosaml.Url2SAMLRequest(tp.Resp.Location())
@@ -376,7 +376,7 @@ func DoRunTestBirk(m modsset) (tp *Testparams) {
     ApplyMods(tp.Newresponse, m["responsemods"])
     tp.SSOSendResponse2()
     if tp.Resp.StatusCode == 500 {
-    	fmt.Println(strings.SplitN(string(tp.Responsebody), " ", 2)[1])
+    	fmt.Println(strings.Trim(strings.SplitN(string(tp.Responsebody), " ", 2)[1], "\n "))
     	return
     }
     return
