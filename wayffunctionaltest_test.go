@@ -53,7 +53,9 @@ var (
 	birk = flag.String("birk", "birk.wayf.dk", "the hostname for the BIRK server to be tested")
 	birkbe = flag.String("birkbe", "", "the birk backend server")
 	trace = flag.Bool("xrace", false, "trace the request/response flow")
+	nobirk = flag.Bool("nobirk", false, "test BIRK")
 	env = flag.String("env", "dev", "which environment to test - if not dev")
+	testcertpath = flag.String("testcertpath", "/etc/ssl/wayf/certs/wildcard.test.lan.pem", "path to the testing cert")
 
 	old, r, w *os.File
     outC = make(chan string)
@@ -63,8 +65,12 @@ var (
             "pnameid": "WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77",
         },
         "dev" : {
-            "eptid": "WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77",
-            "pnameid": "WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77",
+            "eptid": "WAYF-DK-1d5bebf8f3cccb47e912cf0574af7484e97a2992",
+            "pnameid": "WAYF-DK-1d5bebf8f3cccb47e912cf0574af7484e97a2992",
+        },
+        "beta" : {
+            "eptid": "V0FZRi1ESy1iYmE5NDg2YjNjYjkxYjIwMmM3ZmViN2U3YTk5ZjlmYTZiYmU2ZmFl",
+            "pnameid": "WAYF-DK-bba9486b3cb91b202c7feb7e7a99f9fa6bbe6fae",
         },
     }
 )
@@ -109,14 +115,28 @@ func Newtp() (tp *Testparams) {
 		log.Fatal("no PW environment var")
 	}
 	tp = new(Testparams)
+	tp.Env = *env
+	tp.Birk = !*nobirk && tp.Env != "beta"
     tp.Spmd = gosaml.NewMD(mdq+"EDUGAIN", "https://attribute-viewer.aai.switch.ch/interfederation-test/shibboleth")
 	tp.Hubspmd = gosaml.NewMD("https://wayf.wayf.dk/module.php/saml/sp/metadata.php/wayf.wayf.dk", "")
 	tp.Hubidpmd = gosaml.NewMD("https://wayf.wayf.dk/saml2/idp/metadata.php", "")
+
+	wayfserver := "wayf.wayf.dk"
+
+    if tp.Env == "beta" {
+	    wayfserver = "betawayf.wayf.dk"
+        spmd := gosaml.NewMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed", "")
+        uri := spmd.Query(nil, "//wayf:wayf[wayf:redirect.validate='']/../..")
+        tp.Spmd = gosaml.NewXpFromNode(uri[0])
+        tp.Hubspmd = gosaml.NewMD("https://betawayf.wayf.dk/module.php/saml/sp/metadata.php/betawayf.wayf.dk", "")
+        tp.Hubidpmd = gosaml.NewMD("https://betawayf.wayf.dk/saml2/idp/metadata.php", "")
+    }
+
+	tp.Resolv = map[string]string{wayfserver: *hub, "birk.wayf.dk": *birk}
 	tp.Testidpmd = gosaml.NewMD(mdq+"HUB-OPS", "https://this.is.not.a.valid.idp")
 	tp.Testidpviabirkmd = gosaml.NewMD(mdq+"BIRK-OPS", "https://birk.wayf.dk/birk.php/this.is.not.a.valid.idp")
 
 	tp.Idpmd = tp.Testidpmd
-	tp.Resolv = map[string]string{"wayf.wayf.dk": *hub, "birk.wayf.dk": *birk}
     tp.Logrequests = *trace
 
 	tp.Cookiejar = make(map[string]map[string]*http.Cookie)
@@ -220,19 +240,20 @@ func TestPersistentNameID(t *testing.T) {
     stdoutstart()
 	m := modsset{"requestmods": mods{mod{"/samlp:AuthnRequest/samlp:NameIDPolicy[1]/@Format", "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent"}}}
 	// BIRK always sends NameIDPolicy/@Format=transient - but respects what the hub sends back - thus we need to fix the request BIRK sends to the hub (WAYFMMISC-940)
-    n := modsset{"birkrequestmods": m["requestmods"]}
+    //n := modsset{"requestmods": m["requestmods"], "birkrequestmods": m["requestmods"]}
     hub := DoRunTestHub(m)
-    birk := DoRunTestBirk(n)
+    birk := DoRunTestBirk(m)
+    expected := ""
     for _, tp := range []*Testparams{hub, birk} {
+        if tp == nil { continue; }
     	samlresponse := gosaml.Html2SAMLResponse(tp.Responsebody)
 		nameidformat := samlresponse.Query1(nil, "//saml:NameID/@Format")
 		nameid := samlresponse.Query1(nil, "//saml:NameID")
 		eptid := samlresponse.Query1(nil, "//saml:Attribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10']/saml:AttributeValue")
 		fmt.Printf("%s %s %s\n", nameidformat, nameid, eptid)
-	}
-    expected := `urn:oasis:names:tc:SAML:2.0:nameid-format:persistent {{.pnameid}} {{.eptid}}
-urn:oasis:names:tc:SAML:2.0:nameid-format:persistent {{.pnameid}} {{.eptid}}
+		expected += `urn:oasis:names:tc:SAML:2.0:nameid-format:persistent {{.pnameid}} {{.eptid}}
 `
+	}
     stdoutend(t, expected)
 }
 
@@ -244,16 +265,18 @@ func TestTransientNameID(t *testing.T) {
     n := modsset{"birkrequestmods": m["requestmods"]}
     hub := DoRunTestHub(m)
     birk := DoRunTestBirk(n)
+    expected := ""
     for _, tp := range []*Testparams{hub, birk} {
+        if tp == nil { continue }
     	samlresponse := gosaml.Html2SAMLResponse(tp.Responsebody)
 		nameidformat := samlresponse.Query1(nil, "//saml:NameID/@Format")
 		nameid := samlresponse.Query1(nil, "//saml:NameID")
 		eptid := samlresponse.Query1(nil, "//saml:Attribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10']/saml:AttributeValue")
 		fmt.Printf("%s %t %s\n", nameidformat, nameid != "", eptid)
-	}
-    expected := `urn:oasis:names:tc:SAML:2.0:nameid-format:transient true WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77
-urn:oasis:names:tc:SAML:2.0:nameid-format:transient true WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77
+
+        expected += `urn:oasis:names:tc:SAML:2.0:nameid-format:transient true {{.eptid}}
 `
+    }
     stdoutend(t, expected)
 }
 
@@ -265,16 +288,17 @@ func TestUnspecifiedNameID(t *testing.T) {
     n := modsset{"birkrequestmods": m["requestmods"]}
     hub := DoRunTestHub(m)
     birk := DoRunTestBirk(n)
+    expected := ""
     for _, tp := range []*Testparams{hub, birk} {
+        if tp == nil { continue }
     	samlresponse := gosaml.Html2SAMLResponse(tp.Responsebody)
 		nameidformat := samlresponse.Query1(nil, "//saml:NameID/@Format")
 		nameid := samlresponse.Query1(nil, "//saml:NameID")
 		eptid := samlresponse.Query1(nil, "//saml:Attribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10']/saml:AttributeValue")
 		fmt.Printf("%s %t %s\n", nameidformat, nameid != "", eptid)
-	}
-    expected := `urn:oasis:names:tc:SAML:2.0:nameid-format:transient true WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77
-urn:oasis:names:tc:SAML:2.0:nameid-format:transient true WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77
+        expected += `urn:oasis:names:tc:SAML:2.0:nameid-format:transient true {{.eptid}}
 `
+	}
     stdoutend(t, expected)
 }
 
@@ -308,14 +332,14 @@ func TestFullAttributeset(t *testing.T) {
       <saml:AttributeValue xsi:type="xs:string">Anton Banton Cantonsen</saml:AttributeValue>
     </saml:Attribute>
     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.10" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
-      <saml:AttributeValue xsi:type="xs:string">WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77</saml:AttributeValue>
+      <saml:AttributeValue xsi:type="xs:string">{{.eptid}}</saml:AttributeValue>
     </saml:Attribute>
   </saml:AttributeStatement>
 `
     stdoutend(t, expected)
 }
 
-func TestFullAttributesetKrib(t *testing.T) {
+func xTestFullAttributesetKrib(t *testing.T) {
     stdoutstart()
 	hub := DoRunTestKrib(nil)
 	attributes := hub.Newresponse.Query(nil, "//saml:AttributeStatement")[0]
@@ -344,7 +368,7 @@ func TestFullAttributesetKrib(t *testing.T) {
       <saml:AttributeValue xsi:type="xs:string">Anton Banton Cantonsen</saml:AttributeValue>
     </saml:Attribute>
     <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.10" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
-      <saml:AttributeValue xsi:type="xs:string">WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77</saml:AttributeValue>
+      <saml:AttributeValue xsi:type="xs:string">{{.eptid}}</saml:AttributeValue>
     </saml:Attribute>
   </saml:AttributeStatement>
 `
@@ -395,11 +419,14 @@ func TestSignErrorModifiedContent(t *testing.T) {
     stdoutstart()
 	m := modsset{"responsemods": mods{mod{"//saml:Assertion/saml:Issuer", "+ 1234"}}}
 	_ = DoRunTestHub(m)
-	_ = DoRunTestBirk(m)
+	birk := DoRunTestBirk(m)
 
     expected := `Reference validation failed
-Error verifying signature on incoming SAMLResponse
 `
+    if birk != nil {
+        expected += `Error verifying signature on incoming SAMLResponse
+`
+    }
     stdoutend(t, expected)
 }
 
@@ -408,11 +435,14 @@ func TestSignErrorModifiedSignature(t *testing.T) {
     stdoutstart()
 	m := modsset{"responsemods": mods{mod{"//saml:Assertion//ds:SignatureValue", "+ 1234"}}}
 	_ = DoRunTestHub(m)
-	_ = DoRunTestBirk(m)
+	birk := DoRunTestBirk(m)
 
     expected := `Unable to validate Signature
-Error verifying signature on incoming SAMLResponse
 `
+    if birk != nil {
+        expected += `Error verifying signature on incoming SAMLResponse
+`
+    }
     stdoutend(t, expected)
 }
 
@@ -421,11 +451,13 @@ func TestNoSignatureError(t *testing.T) {
     stdoutstart()
 	m := modsset{"responsemods": mods{mod{"//ds:Signature", ""}}}
 	_ = DoRunTestHub(m)
-	_ = DoRunTestBirk(m)
+	birk := DoRunTestBirk(m)
 
     expected := `Neither the assertion nor the response was signed.
-Error verifying signature on incoming SAMLResponse
 `
+    if birk != nil { expected += `Error verifying signature on incoming SAMLResponse
+`
+    }
     stdoutend(t, expected)
 }
 
@@ -477,10 +509,13 @@ func TestRequestSchemaError(t *testing.T) {
     stdoutstart()
 	m := modsset{"requestmods": mods{mod{"./@IsPassive", "isfalse"}}}
 	_ = DoRunTestHub(m)
-	_ = DoRunTestBirk(m)
+	birk := DoRunTestBirk(m)
     expected := `Invalid value of boolean attribute 'IsPassive': 'isfalse'
-SAMLMessage does not validate according to schema: , error(s): line: 2:0, error: Element '{urn:oasis:names:tc:SAML:2.0:protocol}AuthnRequest', attribute 'IsPassive': 'isfalse' is not a valid value of the atomic type 'xs:boolean'.
 `
+    if birk != nil {
+        expected += `SAMLMessage does not validate according to schema: , error(s): line: 2:0, error: Element '{urn:oasis:names:tc:SAML:2.0:protocol}AuthnRequest', attribute 'IsPassive': 'isfalse' is not a valid value of the atomic type 'xs:boolean'.
+`
+    }
     stdoutend(t, expected)
 }
 
@@ -489,10 +524,13 @@ func TestResponseSchemaError(t *testing.T) {
     stdoutstart()
 	m := modsset{"responsemods": mods{mod{"./@IssueInstant", "isfalse"}}}
 	_ = DoRunTestHub(m)
-	_ = DoRunTestBirk(m)
+	birk := DoRunTestBirk(m)
     expected := `Invalid SAML2 timestamp passed to parseSAML2Time: isfalse
-SAMLMessage does not validate according to schema: , error(s): line: 2:0, error: Element '{urn:oasis:names:tc:SAML:2.0:protocol}Response', attribute 'IssueInstant': 'isfalse' is not a valid value of the atomic type 'xs:dateTime'.
 `
+    if birk != nil {
+        expected += `SAMLMessage does not validate according to schema: , error(s): line: 2:0, error: Element '{urn:oasis:names:tc:SAML:2.0:protocol}Response', attribute 'IssueInstant': 'isfalse' is not a valid value of the atomic type 'xs:dateTime'.
+`
+    }
     stdoutend(t, expected)
 }
 
@@ -537,10 +575,13 @@ func TestUnknownSPError(t *testing.T) {
     stdoutstart()
 	m := modsset{"requestmods": mods{mod{"./saml:Issuer", "https://www.example.com/unknownentity"}}}
 	_ = DoRunTestHub(m)
-	_ = DoRunTestBirk(m)
+	birk := DoRunTestBirk(m)
     expected := `Metadata not found for entity: https://www.example.com/unknownentity
-Metadata for entity: https://www.example.com/unknownentity not found
 `
+    if birk != nil {
+        expected += `Metadata for entity: https://www.example.com/unknownentity not found
+`
+    }
     stdoutend(t, expected)
 }
 
@@ -549,8 +590,11 @@ Metadata for entity: https://www.example.com/unknownentity not found
 func TestUnknownIDPError(t *testing.T) {
     stdoutstart()
 	m := modsset{"requestmods": mods{mod{"./@Destination", "https://birk.wayf.dk/birk.php/www.example.com/unknownentity"}}}
-	_ = DoRunTestBirk(m)
-    expected := `Metadata for entity: https://birk.wayf.dk/birk.php/www.example.com/unknownentity not found
+	expected := ""
+	birk := DoRunTestBirk(m)
+	if birk != nil {
+        expected += `Metadata for entity: https://birk.wayf.dk/birk.php/www.example.com/unknownentity not found
 `
+    }
     stdoutend(t, expected)
 }

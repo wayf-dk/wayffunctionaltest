@@ -10,7 +10,9 @@ package wayffunctionaltest
 
 import (
     "C"
+	"crypto/rsa"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -54,6 +56,8 @@ type Testparams struct {
 	Hashalgorithm                                               string
 	Attributestmt                                               *gosaml.Xp
 	ViaKrib                                                     bool
+	Birk                                                        bool
+	Env                                                         string
 }
 
 // SSOCreateInitialRequest creates a SAMLRequest given the tp Testparams
@@ -105,14 +109,14 @@ func (tp *Testparams) SSOSendRequest1() {
 	u, _ = tp.Resp.Location()
 
     if tp.ViaKrib {
-	tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
-	// Errors from BIRK is 500 + text/plain
-	if tp.Err != nil || tp.Resp.StatusCode == 500 {
+        tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
+        // Errors from BIRK is 500 + text/plain
+        if tp.Err != nil || tp.Resp.StatusCode == 500 {
 
-		return
-	}
+            return
+        }
 
-	u, _ = tp.Resp.Location()
+        u, _ = tp.Resp.Location()
     }
 
 	query := u.Query()
@@ -133,6 +137,14 @@ func (tp *Testparams) SSOSendRequest2() {
 
 	// if going via birk we now got a scoped request to the hub
 	if tp.Usedoubleproxy {
+
+/*
+        query := u.Query()
+        req, _ := base64.StdEncoding.DecodeString(query["SAMLRequest"][0])
+        authnrequest := gosaml.NewXp(gosaml.Inflate(req))
+        log.Println(authnrequest.Pp())
+*/
+
 		tp.Resp, _, _ = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
 		u, _ = tp.Resp.Location()
 	}
@@ -167,6 +179,16 @@ func (tp *Testparams) SSOSendRequest2() {
 
 	if tp.Encryptresponse {
 	    _, publickey, _, _ := tp.Hubspmd.PublicKeyInfo("encryption")
+
+        if tp.Env == "dev" {
+            cert, err := ioutil.ReadFile(*testcertpath)
+            pk, err := x509.ParseCertificate(cert)
+            if err != nil {
+                return
+            }
+            publickey = pk.PublicKey.(*rsa.PublicKey)
+        }
+
 	    tp.Newresponse.Encrypt(assertion, publickey)
 	}
 	return
@@ -206,7 +228,15 @@ func (tp *Testparams) SSOSendResponse1() {
 	if strings.Contains(u.Path, "getconsent.php") {
 		u.RawQuery = u.RawQuery + "&yes=1"
 		tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
+        u, _ = tp.Resp.Location()
+    }
+
+    // betawayf test system warning - u is only != nil in the beta env - otherwise the answer from getconsent is a POST
+	if u != nil && strings.Contains(u.Path, "showwarning.php") {
+		u.RawQuery = u.RawQuery + "&yes=Go+to+test-system"
+		tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
 	}
+
 	tp.Newresponse = gosaml.Html2SAMLResponse(tp.Responsebody)
 }
 
@@ -333,6 +363,8 @@ func DoRunTestHub(m modsset) (tp *Testparams) {
     ApplyMods(tp.Attributestmt, m["attributemods"])
     tp.SSOCreateInitialRequest()
     ApplyMods(tp.Initialrequest, m["requestmods"])
+//    log.Println(tp.Initialrequest.Pp())
+
     tp.SSOSendRequest()
     if tp.Resp.StatusCode == 500 {
         response := gosaml.NewHtmlXp(tp.Responsebody)
@@ -353,12 +385,14 @@ func DoRunTestHub(m modsset) (tp *Testparams) {
 // Returns a *Testparams which can be analyzed
 func DoRunTestBirk(m modsset) (tp *Testparams) {
 	tp = Newtp()
+	if !tp.Birk { tp = nil; return }
     defer xxx(tp.Logrequests)
 	tp.Idpmd = tp.Testidpviabirkmd
 
     ApplyMods(tp.Attributestmt, m["attributemods"])
     tp.SSOCreateInitialRequest()
     ApplyMods(tp.Initialrequest, m["requestmods"])
+//    log.Println(tp.Initialrequest.Pp())
     tp.SSOSendRequest1()
     if tp.Resp.StatusCode == 500 {
     	fmt.Println(strings.Trim(strings.SplitN(string(tp.Responsebody), " ", 2)[1], "\n "))
@@ -366,6 +400,7 @@ func DoRunTestBirk(m modsset) (tp *Testparams) {
     }
     authnrequest := gosaml.Url2SAMLRequest(tp.Resp.Location())
     ApplyMods(authnrequest, m["birkrequestmods"])
+//    log.Println(authnrequest.Pp())
     tp.Resp.Header.Set("Location", gosaml.SAMLRequest2Url(authnrequest).String())
     if tp.Resp.StatusCode == 500 {
     	fmt.Println(strings.SplitN(string(tp.Responsebody), " ", 2)[1])
