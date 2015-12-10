@@ -235,6 +235,11 @@ func (tp *Testparams) SSOSendResponse1() {
 	if u != nil && strings.Contains(u.Path, "showwarning.php") {
 		u.RawQuery = u.RawQuery + "&yes=Go+to+test-system"
 		tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
+		u, _ = tp.Resp.Location()
+        if u!= nil && strings.Contains(u.Path, "displayerror.php") { // from betawayf the errors are sent after showwarning.php
+            tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
+            return
+        }
 	}
 
 	tp.Newresponse = gosaml.Html2SAMLResponse(tp.Responsebody)
