@@ -93,7 +93,7 @@ func (tp *Testparams) SSOSendRequest() {
 // SSOSendRequest1 does the 1st part of sending the request, handles the discovery service if needed
 func (tp *Testparams) SSOSendRequest1() {
 
-	u := gosaml.SAMLRequest2Url(tp.Initialrequest)
+	u, _ := gosaml.SAMLRequest2Url(tp.Initialrequest, "", "", "")
 	if tp.ViaKrib {
 	    u.Host = "birk.wayf.dk"
 	    u.Path = "/krib.php"
@@ -406,7 +406,8 @@ func DoRunTestBirk(m modsset) (tp *Testparams) {
     authnrequest := gosaml.Url2SAMLRequest(tp.Resp.Location())
     ApplyMods(authnrequest, m["birkrequestmods"])
 //    log.Println(authnrequest.Pp())
-    tp.Resp.Header.Set("Location", gosaml.SAMLRequest2Url(authnrequest).String())
+   	u, _ := gosaml.SAMLRequest2Url(authnrequest, "", "", "")
+    tp.Resp.Header.Set("Location", u.String())
     if tp.Resp.StatusCode == 500 {
     	fmt.Println(strings.SplitN(string(tp.Responsebody), " ", 2)[1])
     	return
@@ -437,7 +438,8 @@ func DoRunTestKrib(m modsset) (tp *Testparams) {
     }
 
     authnrequest := gosaml.Url2SAMLRequest(tp.Resp.Location())
-    tp.Resp.Header.Set("Location", gosaml.SAMLRequest2Url(authnrequest).String())
+   	u, _ := gosaml.SAMLRequest2Url(authnrequest, "", "", "")
+    tp.Resp.Header.Set("Location", u.String())
     if tp.Resp.StatusCode == 500 {
     	fmt.Println(strings.SplitN(string(tp.Responsebody), " ", 2)[1])
     	return
