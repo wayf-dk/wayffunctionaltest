@@ -61,16 +61,16 @@ var (
     outC = make(chan string)
     templatevalues = map[string]map[string]string {
         "prod" : {
-            "eptid": "WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77",
-            "pnameid": "WAYF-DK-8b7b8966be6a12a8f70f760dda4e1522af2dba77",
+            "eptid": "WAYF-DK-c52a92a5467ae336a2be77cd06719c645e72dfd2",
+            "pnameid": "WAYF-DK-c52a92a5467ae336a2be77cd06719c645e72dfd2",
         },
         "dev" : {
             "eptid": "WAYF-DK-1d5bebf8f3cccb47e912cf0574af7484e97a2992",
             "pnameid": "WAYF-DK-1d5bebf8f3cccb47e912cf0574af7484e97a2992",
         },
         "beta" : {
-            "eptid": "V0FZRi1ESy1iYmE5NDg2YjNjYjkxYjIwMmM3ZmViN2U3YTk5ZjlmYTZiYmU2ZmFl",
-            "pnameid": "WAYF-DK-bba9486b3cb91b202c7feb7e7a99f9fa6bbe6fae",
+            "eptid": "WAYF-DK-c52a92a5467ae336a2be77cd06719c645e72dfd2",
+            "pnameid": "WAYF-DK-c52a92a5467ae336a2be77cd06719c645e72dfd2",
         },
     }
 )
@@ -117,7 +117,7 @@ func Newtp() (tp *Testparams) {
 	tp = new(Testparams)
 	tp.Env = *env
 	tp.Birk = !*nobirk && tp.Env != "beta"
-    tp.Spmd = gosaml.NewMD(mdq+"EDUGAIN", "https://attribute-viewer.aai.switch.ch/interfederation-test/shibboleth")
+    tp.Spmd = gosaml.NewMD(mdq+"HUB-OPS", "https://wayfsp.wayf.dk")
 	tp.Hubspmd = gosaml.NewMD("https://wayf.wayf.dk/module.php/saml/sp/metadata.php/wayf.wayf.dk", "")
 	tp.Hubidpmd = gosaml.NewMD("https://wayf.wayf.dk/saml2/idp/metadata.php", "")
 
@@ -125,9 +125,6 @@ func Newtp() (tp *Testparams) {
 
     if tp.Env == "beta" {
 	    wayfserver = "betawayf.wayf.dk"
-        spmd := gosaml.NewMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed", "")
-        uri := spmd.Query(nil, "//wayf:wayf[wayf:redirect.validate='']/../..")
-        tp.Spmd = gosaml.NewXpFromNode(uri[0])
         tp.Hubspmd = gosaml.NewMD("https://betawayf.wayf.dk/module.php/saml/sp/metadata.php/betawayf.wayf.dk", "")
         tp.Hubidpmd = gosaml.NewMD("https://betawayf.wayf.dk/saml2/idp/metadata.php", "")
     }
@@ -306,32 +303,75 @@ func TestUnspecifiedNameID(t *testing.T) {
 func TestFullAttributeset(t *testing.T) {
     stdoutstart()
 	hub := DoRunTestHub(nil)
-	attributes := hub.Newresponse.Query(nil, "//saml:AttributeStatement")[0]
-	fmt.Println(hub.Newresponse.Dump2(attributes))
+	if hub.Newresponse != nil {
+	    attributes := hub.Newresponse.Query(nil, "//saml:AttributeStatement")[0]
+	    fmt.Println(hub.Newresponse.Dump2(attributes))
+	}
     expected := `<saml:AttributeStatement>
-    <saml:Attribute Name="urn:oid:2.5.4.3" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+    <saml:Attribute Name="sn" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
+      <saml:AttributeValue xsi:type="xs:string">Cantonsen</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="gn" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
+      <saml:AttributeValue xsi:type="xs:string">Anton Banton &lt;SamlRequest id="abc"&gt;abc&lt;/SamlRequest&gt;</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="cn" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
       <saml:AttributeValue xsi:type="xs:string">Anton Banton Cantonsen</saml:AttributeValue>
     </saml:Attribute>
-    <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.6" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+    <saml:Attribute Name="eduPersonPrincipalName" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
       <saml:AttributeValue xsi:type="xs:string">joe@this.is.not.a.valid.idp</saml:AttributeValue>
     </saml:Attribute>
-    <saml:Attribute Name="urn:oid:0.9.2342.19200300.100.1.3" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+    <saml:Attribute Name="mail" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
       <saml:AttributeValue xsi:type="xs:string">joe@example.com</saml:AttributeValue>
     </saml:Attribute>
-    <saml:Attribute Name="urn:oid:1.3.6.1.4.1.25178.1.2.9" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+    <saml:Attribute Name="eduPersonPrimaryAffiliation" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
+      <saml:AttributeValue xsi:type="xs:string">student</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="organizationName" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
+      <saml:AttributeValue xsi:type="xs:string">Orphanage - home for the homeless</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="eduPersonAssurance" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
+      <saml:AttributeValue xsi:type="xs:string">2</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="schacHomeOrganization" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
       <saml:AttributeValue xsi:type="xs:string">this.is.not.a.valid.idp</saml:AttributeValue>
     </saml:Attribute>
-    <saml:Attribute Name="urn:oid:1.3.6.1.4.1.25178.1.2.10" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+    <saml:Attribute Name="schacHomeOrganizationType" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
       <saml:AttributeValue xsi:type="xs:string">urn:mace:terena.org:schac:homeOrganizationType:int:other</saml:AttributeValue>
     </saml:Attribute>
-    <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.1" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
-      <saml:AttributeValue xsi:type="xs:string">student</saml:AttributeValue>
-      <saml:AttributeValue xsi:type="xs:string">member</saml:AttributeValue>
+    <saml:Attribute Name="eduPersonTargetedID" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
+      <saml:AttributeValue xsi:type="xs:string">{{.eptid}}</saml:AttributeValue>
     </saml:Attribute>
-    <saml:Attribute Name="urn:oid:2.16.840.1.113730.3.1.241" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+    <saml:Attribute Name="urn:oid:2.5.4.4" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
+      <saml:AttributeValue xsi:type="xs:string">Cantonsen</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:2.5.4.42" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
+      <saml:AttributeValue xsi:type="xs:string">Anton Banton &lt;SamlRequest id="abc"&gt;abc&lt;/SamlRequest&gt;</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:2.5.4.3" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
       <saml:AttributeValue xsi:type="xs:string">Anton Banton Cantonsen</saml:AttributeValue>
     </saml:Attribute>
-    <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.10" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri">
+    <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.6" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
+      <saml:AttributeValue xsi:type="xs:string">joe@this.is.not.a.valid.idp</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:0.9.2342.19200300.100.1.3" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
+      <saml:AttributeValue xsi:type="xs:string">joe@example.com</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.5" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
+      <saml:AttributeValue xsi:type="xs:string">student</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:2.5.4.10" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
+      <saml:AttributeValue xsi:type="xs:string">Orphanage - home for the homeless</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.11" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
+      <saml:AttributeValue xsi:type="xs:string">2</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:1.3.6.1.4.1.25178.1.2.9" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
+      <saml:AttributeValue xsi:type="xs:string">this.is.not.a.valid.idp</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:1.3.6.1.4.1.25178.1.2.10" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
+      <saml:AttributeValue xsi:type="xs:string">urn:mace:terena.org:schac:homeOrganizationType:int:other</saml:AttributeValue>
+    </saml:Attribute>
+    <saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.10" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
       <saml:AttributeValue xsi:type="xs:string">{{.eptid}}</saml:AttributeValue>
     </saml:Attribute>
   </saml:AttributeStatement>
