@@ -219,7 +219,7 @@ func TestAttributeNameFormat(t *testing.T) {
 	for _, md := range sps {
         defaulttp = &Testparams{Spmd: md}
         tp := DoRunTestHub(nil)
-		samlresponse := gosaml.Html2SAMLResponse(tp.Responsebody)
+		samlresponse := Html2SAMLResponse(tp)
 		requested := md.QueryNumber(nil, mdcount)
 		uricount := samlresponse.QueryNumber(nil, ascounturi)
 		basiccount := samlresponse.QueryNumber(nil, ascountbasic)
@@ -243,7 +243,7 @@ func TestPersistentNameID(t *testing.T) {
     expected := ""
     for _, tp := range []*Testparams{hub, birk} {
         if tp == nil { continue; }
-    	samlresponse := gosaml.Html2SAMLResponse(tp.Responsebody)
+    	samlresponse := Html2SAMLResponse(tp)
 		nameidformat := samlresponse.Query1(nil, "//saml:NameID/@Format")
 		nameid := samlresponse.Query1(nil, "//saml:NameID")
 		eptid := samlresponse.Query1(nil, "//saml:Attribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10']/saml:AttributeValue")
@@ -265,7 +265,7 @@ func TestTransientNameID(t *testing.T) {
     expected := ""
     for _, tp := range []*Testparams{hub, birk} {
         if tp == nil { continue }
-    	samlresponse := gosaml.Html2SAMLResponse(tp.Responsebody)
+    	samlresponse := Html2SAMLResponse(tp)
 		nameidformat := samlresponse.Query1(nil, "//saml:NameID/@Format")
 		nameid := samlresponse.Query1(nil, "//saml:NameID")
 		eptid := samlresponse.Query1(nil, "//saml:Attribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10']/saml:AttributeValue")
@@ -288,7 +288,7 @@ func TestUnspecifiedNameID(t *testing.T) {
     expected := ""
     for _, tp := range []*Testparams{hub, birk} {
         if tp == nil { continue }
-    	samlresponse := gosaml.Html2SAMLResponse(tp.Responsebody)
+    	samlresponse := Html2SAMLResponse(tp)
 		nameidformat := samlresponse.Query1(nil, "//saml:NameID/@Format")
 		nameid := samlresponse.Query1(nil, "//saml:NameID")
 		eptid := samlresponse.Query1(nil, "//saml:Attribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10']/saml:AttributeValue")

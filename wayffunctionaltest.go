@@ -115,7 +115,6 @@ func (tp *Testparams) SSOSendRequest1() {
 
             return
         }
-
         u, _ = tp.Resp.Location()
     }
 
@@ -452,6 +451,27 @@ func DoRunTestKrib(m modsset) (tp *Testparams) {
     	return
     }
     return
+}
+
+// Html2SAMLResponse extracts the SAMLResponse from a html document
+func Html2SAMLResponse(tp *Testparams) (samlresponse *gosaml.Xp) {
+	response := gosaml.NewHtmlXp(tp.Responsebody)
+	samlbase64 := response.Query1(nil, `//input[@name="SAMLResponse"]/@value`)
+	samlxml, _ := base64.StdEncoding.DecodeString(samlbase64)
+	samlresponse = gosaml.NewXp(samlxml)
+    if _, err := samlresponse.SchemaValidate("/home/mz/src/github.com/wayf-dk/gosaml/schemas/saml-schema-protocol-2.0.xsd"); err != nil {
+        fmt.Println("SchemaError")
+    }
+	firstidpmd := tp.Idpmd
+	if !tp.Usedoubleproxy {
+		firstidpmd = tp.Hubidpmd
+	}
+	_, pub, _, _ := firstidpmd.PublicKeyInfo("signing")
+	assertion := samlresponse.Query(nil, "saml:Assertion[1]")[0]
+	if err := samlresponse.VerifySignature(assertion, pub); !err {
+	    fmt.Println("SignatureVerificationError")
+	}
+	return
 }
 
 func xxx(really bool) {
