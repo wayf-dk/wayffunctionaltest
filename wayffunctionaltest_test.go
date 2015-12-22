@@ -246,9 +246,11 @@ func TestPersistentNameID(t *testing.T) {
     	samlresponse := Html2SAMLResponse(tp)
 		nameidformat := samlresponse.Query1(nil, "//saml:NameID/@Format")
 		nameid := samlresponse.Query1(nil, "//saml:NameID")
+		audience := samlresponse.Query1(nil, "//saml:Audience")
+		spnamequalifier := samlresponse.Query1(nil, "//saml:NameID/@SPNameQualifier")
 		eptid := samlresponse.Query1(nil, "//saml:Attribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10']/saml:AttributeValue")
-		fmt.Printf("%s %s %s\n", nameidformat, nameid, eptid)
-		expected += `urn:oasis:names:tc:SAML:2.0:nameid-format:persistent {{.pnameid}} {{.eptid}}
+		fmt.Printf("%s %s %s %s %s\n", nameidformat, nameid, eptid, audience, spnamequalifier)
+		expected += `urn:oasis:names:tc:SAML:2.0:nameid-format:persistent {{.pnameid}} {{.eptid}} https://wayfsp.wayf.dk https://wayfsp.wayf.dk
 `
 	}
     stdoutend(t, expected)
