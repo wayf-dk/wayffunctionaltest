@@ -242,7 +242,7 @@ func TestPersistentNameID(t *testing.T) {
     birk := DoRunTestBirk(m)
     expected := ""
     for _, tp := range []*Testparams{hub, birk} {
-        if tp == nil { continue; }
+        if tp == nil || tp.Resp.StatusCode != 200 { continue; }
     	samlresponse := Html2SAMLResponse(tp)
 		nameidformat := samlresponse.Query1(nil, "//saml:NameID/@Format")
 		nameid := samlresponse.Query1(nil, "//saml:NameID")
@@ -266,13 +266,12 @@ func TestTransientNameID(t *testing.T) {
     birk := DoRunTestBirk(n)
     expected := ""
     for _, tp := range []*Testparams{hub, birk} {
-        if tp == nil { continue }
+        if tp == nil || tp.Resp.StatusCode != 200 { continue; }
     	samlresponse := Html2SAMLResponse(tp)
 		nameidformat := samlresponse.Query1(nil, "//saml:NameID/@Format")
 		nameid := samlresponse.Query1(nil, "//saml:NameID")
 		eptid := samlresponse.Query1(nil, "//saml:Attribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10']/saml:AttributeValue")
 		fmt.Printf("%s %t %s\n", nameidformat, nameid != "", eptid)
-
         expected += `urn:oasis:names:tc:SAML:2.0:nameid-format:transient true {{.eptid}}
 `
     }
@@ -289,7 +288,7 @@ func TestUnspecifiedNameID(t *testing.T) {
     birk := DoRunTestBirk(n)
     expected := ""
     for _, tp := range []*Testparams{hub, birk} {
-        if tp == nil { continue }
+        if tp == nil || tp.Resp.StatusCode != 200 { continue; }
     	samlresponse := Html2SAMLResponse(tp)
 		nameidformat := samlresponse.Query1(nil, "//saml:NameID/@Format")
 		nameid := samlresponse.Query1(nil, "//saml:NameID")
