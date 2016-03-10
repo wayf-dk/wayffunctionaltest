@@ -29,7 +29,7 @@ import (
 )
 
 const (
-    samlSchema = "/home/mz/src/github.com/wayf-dk/gosaml/schemas/saml-schema-protocol-2.0.xsd"
+	samlSchema = "/home/mz/src/github.com/wayf-dk/gosaml/schemas/saml-schema-protocol-2.0.xsd"
 )
 
 var (
@@ -43,26 +43,27 @@ var (
 // 3rdly call SSOSendResponse - and analyze the final resulting SAMLResponse
 type Testparams struct {
 	Spmd, Idpmd, Hubidpmd, Hubspmd, Birkmd, Firstidpmd *gosaml.Xp
-	Cookiejar                                                   map[string]map[string]*http.Cookie
-	IdpentityID                                                 string
-	DSIdpentityID                                               string
-	Usescope                                                    bool
-	Usedoubleproxy                                              bool
-	Resolv                                                      map[string]string
-	Initialrequest                                              *gosaml.Xp
-	Newresponse                                                 *gosaml.Xp
-	Resp                                                        *http.Response
-	Responsebody                                                []byte
-	Err                                                         error
-	Logrequests, Encryptresponse                                bool
-	Privatekey                                                  string
-	Privatekeypw                                                string
-	Certificate                                                 string
-	Hashalgorithm                                               string
-	Attributestmt                                               *gosaml.Xp
-	Krib                                                        bool
-	Birk                                                        bool
-	Env                                                         string
+	Cookiejar                                          map[string]map[string]*http.Cookie
+	IdpentityID                                        string
+	DSIdpentityID                                      string
+	Usescope                                           bool
+	Usedoubleproxy                                     bool
+	Resolv                                             map[string]string
+	Initialrequest                                     *gosaml.Xp
+	Newresponse                                        *gosaml.Xp
+	Resp                                               *http.Response
+	Responsebody                                       []byte
+	Err                                                error
+	Logrequests, Encryptresponse                       bool
+	Privatekey                                         string
+	Privatekeypw                                       string
+	Certificate                                        string
+	Hashalgorithm                                      string
+	Attributestmt                                      *gosaml.Xp
+	Hub                                                bool
+	Krib                                               bool
+	Birk                                               bool
+	Env                                                string
 }
 
 // SSOCreateInitialRequest creates a SAMLRequest given the tp Testparams
@@ -91,6 +92,7 @@ func (tp *Testparams) SSOSendRequest() {
 // SSOSendRequest1 does the 1st part of sending the request, handles the discovery service if needed
 func (tp *Testparams) SSOSendRequest1() {
 
+	//    log.Println("initialrequest.", tp.Initialrequest.Pp())
 	u, _ := gosaml.SAMLRequest2Url(tp.Initialrequest, "", "", "")
 
 	// initial request - to hub or birk
@@ -162,10 +164,10 @@ func (tp *Testparams) SSOSendRequest2() {
 
 	if tp.Encryptresponse {
 
-        certs := tp.Hubspmd.Query(nil, fmt.Sprintf(`//md:KeyDescriptor[@use="encryption" or not(@use)]/ds:KeyInfo/ds:X509Data/ds:X509Certificate`, role))
-        if len(certs) == 0 {
-            fmt.Errorf("Could not find signing cert for: %s", md.Query1(nil, "/@entityID"))
-        }
+		certs := tp.Hubspmd.Query(nil, `//md:KeyDescriptor[@use="encryption" or not(@use)]/ds:KeyInfo/ds:X509Data/ds:X509Certificate`)
+		if len(certs) == 0 {
+			fmt.Errorf("Could not find encryption cert for: %s", tp.Hubspmd.Query1(nil, "/@entityID"))
+		}
 
 		_, publickey, _ := gosaml.PublicKeyInfo(tp.Hubspmd.NodeGetContent(certs[0]))
 
@@ -201,29 +203,29 @@ func (tp *Testparams) SSOSendResponse() {
 	}
 
 	if u, _ = tp.Resp.Location(); u != nil {
-        if strings.Contains(u.Path, "displayerror.php") {
-            tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
-            //log.Println("Displayerror:", string(tp.Responsebody))
-            return
-        }
-        // and now for some consent
-        if strings.Contains(u.Path, "getconsent.php") {
-            u.RawQuery = u.RawQuery + "&yes=1"
-            tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
-            u, _ = tp.Resp.Location()
-        }
+		if strings.Contains(u.Path, "displayerror.php") {
+			tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
+			//log.Println("Displayerror:", string(tp.Responsebody))
+			return
+		}
+		// and now for some consent
+		if strings.Contains(u.Path, "getconsent.php") {
+			u.RawQuery = u.RawQuery + "&yes=1"
+			tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
+			u, _ = tp.Resp.Location()
+		}
 
-        // betawayf test system warning - u is only != nil in the beta env - otherwise the answer from getconsent is a POST
-        if u != nil && strings.Contains(u.Path, "showwarning.php") {
-            u.RawQuery = u.RawQuery + "&yes=Go+to+test-system"
-            tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
-            u, _ = tp.Resp.Location()
-            if u != nil && strings.Contains(u.Path, "displayerror.php") { // from betawayf the errors are sent after showwarning.php
-                tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
-                return
-            }
-        }
-    }
+		// betawayf test system warning - u is only != nil in the beta env - otherwise the answer from getconsent is a POST
+		if u != nil && strings.Contains(u.Path, "showwarning.php") {
+			u.RawQuery = u.RawQuery + "&yes=Go+to+test-system"
+			tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
+			u, _ = tp.Resp.Location()
+			if u != nil && strings.Contains(u.Path, "displayerror.php") { // from betawayf the errors are sent after showwarning.php
+				tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
+				return
+			}
+		}
+	}
 	tp.Newresponse = gosaml.Html2SAMLResponse(tp.Responsebody)
 }
 
@@ -291,16 +293,16 @@ func (tp *Testparams) sendRequest(url *url.URL, server, method, body string, coo
 		defer resp.Body.Close()
 	}
 
-    // We didn't get a Location: header - we are POST'ing a SAMLResponse
+	// We didn't get a Location: header - we are POST'ing a SAMLResponse
 	if loc == "" {
 		response := gosaml.NewHtmlXp(responsebody)
-    	samlbase64 := response.Query1(nil, `//input[@name="SAMLResponse"]/@value`)
-    	if samlbase64 != "" {
-	        samlxml, _ := base64.StdEncoding.DecodeString(samlbase64)
-	        samlresponse := gosaml.NewXp(samlxml)
-	        u, _ := url.Parse(samlresponse.Query1(nil, "@Destination"))
-	        loc = u.Host + u.Path
-	    }
+		samlbase64 := response.Query1(nil, `//input[@name="SAMLResponse"]/@value`)
+		if samlbase64 != "" {
+			samlxml, _ := base64.StdEncoding.DecodeString(samlbase64)
+			samlresponse := gosaml.NewXp(samlxml)
+			u, _ := url.Parse(samlresponse.Query1(nil, "@Destination"))
+			loc = u.Host + u.Path
+		}
 	}
 
 	if tp.Logrequests {
@@ -341,10 +343,13 @@ func ApplyMods(xp *gosaml.Xp, m mods) {
 // DoRunTestHub runs a test on the hub - applying the necessary modifications on the way.
 // Returns a *Testparams which can be analyzed
 func DoRunTestHub(m modsset) (tp *Testparams) {
-	tp = Newtp() // kind of stupid
-	if tp.Krib {
-	    return DoRunTestKrib(m, tp)
+	if *dokrib {
+		return DoRunTestKrib(m)
 	}
+	if !*dohub {
+	    return
+	}
+	tp = Newtp() // kind of stupid
 	defer xxx(tp.Logrequests)
 	ApplyMods(tp.Attributestmt, m["attributemods"])
 	tp.SSOCreateInitialRequest()
@@ -377,7 +382,7 @@ func DoRunTestBirk(m modsset) (tp *Testparams) {
 	}
 	defer xxx(tp.Logrequests)
 	tp.Firstidpmd = tp.Birkmd
-    tp.Usedoubleproxy = true
+	tp.Usedoubleproxy = true
 
 	ApplyMods(tp.Attributestmt, m["attributemods"])
 	tp.SSOCreateInitialRequest()
@@ -393,12 +398,16 @@ func DoRunTestBirk(m modsset) (tp *Testparams) {
 	//    log.Println(authnrequest.Pp())
 	u, _ := gosaml.SAMLRequest2Url(authnrequest, "", "", "")
 	tp.Resp.Header.Set("Location", u.String())
+	tp.SSOSendRequest2()
 	if tp.Resp.StatusCode == 500 {
 		fmt.Println(strings.SplitN(string(tp.Responsebody), " ", 2)[1])
 		return
 	}
-	tp.SSOSendRequest2()
 	tp.SSOSendResponse()
+	if tp.Resp.StatusCode == 500 {
+		fmt.Println(strings.SplitN(string(tp.Responsebody), " ", 2)[1])
+		return
+	}
 	ApplyMods(tp.Newresponse, m["responsemods"])
 	tp.SSOSendResponse()
 	if tp.Resp.StatusCode == 500 {
@@ -409,8 +418,11 @@ func DoRunTestBirk(m modsset) (tp *Testparams) {
 }
 
 // DoRunTestKrib
-func DoRunTestKrib(m modsset, tpx *Testparams) (tp *Testparams) {
-	tp = tpx
+func DoRunTestKrib(m modsset) (tp *Testparams) {
+	if !*dokrib {
+	    return
+	}
+	tp = Newtp()
 	defer xxx(tp.Logrequests)
 	tp.Usedoubleproxy = true
 
@@ -420,8 +432,7 @@ func DoRunTestKrib(m modsset, tpx *Testparams) (tp *Testparams) {
 	//    log.Println(tp.Initialrequest.Pp())
 	tp.SSOSendRequest1()
 	if tp.Resp.StatusCode == 500 {
-		fmt.Println(string(tp.Responsebody))
-//		fmt.Println(strings.Trim(strings.SplitN(string(tp.Responsebody), " ", 2)[0], "\n "))
+		fmt.Println(strings.TrimSpace(string(tp.Responsebody)))
 		return
 	}
 	authnrequest := gosaml.Url2SAMLRequest(tp.Resp.Location())
@@ -429,7 +440,7 @@ func DoRunTestKrib(m modsset, tpx *Testparams) (tp *Testparams) {
 	u, _ := gosaml.SAMLRequest2Url(authnrequest, "", "", "")
 	tp.Resp.Header.Set("Location", u.String())
 	if tp.Resp.StatusCode == 500 {
-		fmt.Println(strings.SplitN(string(tp.Responsebody), " ", 2)[1])
+		fmt.Println(strings.TrimSpace(string(tp.Responsebody)))
 		return
 	}
 	tp.SSOSendRequest2()
@@ -437,11 +448,15 @@ func DoRunTestKrib(m modsset, tpx *Testparams) (tp *Testparams) {
 		log.Panic(string(tp.Responsebody))
 	}
 	tp.SSOSendResponse()
+	if tp.Resp.StatusCode == 500 {
+		fmt.Println(strings.TrimSpace(string(tp.Responsebody)))
+		return
+	}
 	ApplyMods(tp.Newresponse, m["responsemods"])
 	tp.SSOSendResponse()
 
 	if tp.Resp.StatusCode == 500 {
-		fmt.Println(strings.Trim(strings.SplitN(string(tp.Responsebody), " ", 2)[1], "\n "))
+		fmt.Println(strings.TrimSpace(string(tp.Responsebody)))
 		return
 	}
 	return
@@ -457,15 +472,19 @@ func Html2SAMLResponse(tp *Testparams) (samlresponse *gosaml.Xp) {
 		fmt.Println("SchemaError")
 	}
 
-	certs := tp.Firstidpmd.Query(nil, fmt.Sprintf(`//md:KeyDescriptor[@use="signing" or not(@use)]/ds:KeyInfo/ds:X509Data/ds:X509Certificate`, role))
+	certs := tp.Firstidpmd.Query(nil, `//md:KeyDescriptor[@use="signing" or not(@use)]/ds:KeyInfo/ds:X509Data/ds:X509Certificate`)
 	if len(certs) == 0 {
-		fmt.Printf("Could not find signing cert for: %s", md.Query1(nil, "/@entityID"))
+		fmt.Printf("Could not find signing cert for: %s", tp.Firstidpmd.Query1(nil, "/@entityID"))
+		log.Printf("Could not find signing cert for: %s", tp.Firstidpmd.Query1(nil, "/@entityID"))
 	}
 
 	_, pub, _ := gosaml.PublicKeyInfo(tp.Firstidpmd.NodeGetContent(certs[0]))
-	assertion := samlresponse.Query(nil, "saml:Assertion[1]")[0]
-	if err := samlresponse.VerifySignature(assertion, pub); !err {
-		fmt.Println("SignatureVerificationError")
+	assertion := samlresponse.Query(nil, "saml:Assertion[1]")
+	if assertion == nil {
+		fmt.Println("no assertion found")
+	}
+	if err := samlresponse.VerifySignature(assertion[0], pub); err != nil {
+		fmt.Printf("SignatureVerificationError %s", err)
 	}
 	return
 }
