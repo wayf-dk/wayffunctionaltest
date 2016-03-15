@@ -23,6 +23,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -37,34 +38,40 @@ var (
 	_ = fmt.Printf
 )
 
-// Testparams keeps the info necessary to do a full SAMLRequest -> SAMLResponse roundtrip
-// 1st call SSOCreateInitialRequest - then do the possible mods of the request - introduce errors if thats what's going to be tested.
-// 2ndly call SSOSendRequest - the result is a SAMLResponse which again can be modified
-// 3rdly call SSOSendResponse - and analyze the final resulting SAMLResponse
-type Testparams struct {
-	Spmd, Idpmd, Hubidpmd, Hubspmd, Birkmd, Firstidpmd *gosaml.Xp
-	Cookiejar                                          map[string]map[string]*http.Cookie
-	IdpentityID                                        string
-	DSIdpentityID                                      string
-	Usescope                                           bool
-	Usedoubleproxy                                     bool
-	Resolv                                             map[string]string
-	Initialrequest                                     *gosaml.Xp
-	Newresponse                                        *gosaml.Xp
-	Resp                                               *http.Response
-	Responsebody                                       []byte
-	Err                                                error
-	Logrequests, Encryptresponse                       bool
-	Privatekey                                         string
-	Privatekeypw                                       string
-	Certificate                                        string
-	Hashalgorithm                                      string
-	Attributestmt                                      *gosaml.Xp
-	Hub                                                bool
-	Krib                                               bool
-	Birk                                               bool
-	Env                                                string
-}
+type (
+
+	// Testparams keeps the info necessary to do a full SAMLRequest -> SAMLResponse roundtrip
+	// 1st call SSOCreateInitialRequest - then do the possible mods of the request - introduce errors if thats what's going to be tested.
+	// 2ndly call SSOSendRequest - the result is a SAMLResponse which again can be modified
+	// 3rdly call SSOSendResponse - and analyze the final resulting SAMLResponse
+	Testparams struct {
+		Spmd, Idpmd, Hubidpmd, Hubspmd, Birkmd, Firstidpmd *gosaml.Xp
+		Cookiejar                                          map[string]map[string]*http.Cookie
+		IdpentityID                                        string
+		DSIdpentityID                                      string
+		Usescope                                           bool
+		Usedoubleproxy                                     bool
+		Resolv                                             map[string]string
+		Initialrequest                                     *gosaml.Xp
+		Newresponse                                        *gosaml.Xp
+		Resp                                               *http.Response
+		Responsebody                                       []byte
+		Err                                                error
+		Trace, Logxml, Encryptresponse                     bool
+		Privatekey                                         string
+		Privatekeypw                                       string
+		Certificate                                        string
+		Hashalgorithm                                      string
+		Attributestmt                                      *gosaml.Xp
+		Hub                                                bool
+		Krib                                               bool
+		Birk                                               bool
+		Env                                                string
+		ConsentGiven                                       bool
+	}
+
+	testrun func(modsset) *Testparams
+)
 
 // SSOCreateInitialRequest creates a SAMLRequest given the tp Testparams
 func (tp *Testparams) SSOCreateInitialRequest() {
@@ -92,7 +99,9 @@ func (tp *Testparams) SSOSendRequest() {
 // SSOSendRequest1 does the 1st part of sending the request, handles the discovery service if needed
 func (tp *Testparams) SSOSendRequest1() {
 
-	//    log.Println("initialrequest.", tp.Initialrequest.Pp())
+	if tp.Logxml {
+		log.Println("initialrequest:", tp.Initialrequest.Pp())
+	}
 	u, _ := gosaml.SAMLRequest2Url(tp.Initialrequest, "", "", "")
 
 	// initial request - to hub or birk
@@ -123,12 +132,12 @@ func (tp *Testparams) SSOSendRequest2() {
 	// if going via birk we now got a scoped request to the hub
 	if tp.Usedoubleproxy {
 
-		/*
-		   query := u.Query()
-		   req, _ := base64.StdEncoding.DecodeString(query["SAMLRequest"][0])
-		   authnrequest := gosaml.NewXp(gosaml.Inflate(req))
-		   log.Println(authnrequest.Pp())
-		*/
+		if tp.Logxml {
+			query := u.Query()
+			req, _ := base64.StdEncoding.DecodeString(query["SAMLRequest"][0])
+			authnrequest := gosaml.NewXp(gosaml.Inflate(req))
+			log.Println("birkrequest", authnrequest.Pp())
+		}
 
 		tp.Resp, tp.Responsebody, _ = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
 		u, _ = tp.Resp.Location()
@@ -137,8 +146,10 @@ func (tp *Testparams) SSOSendRequest2() {
 	// We still expect to be redirected
 	// if we are not at our final IdP something is rotten
 
-	idp, _ := url.Parse(tp.Idpmd.Query1(nil, "@entityID"))
+	eid := tp.Idpmd.Query1(nil, "@entityID")
+	idp, _ := url.Parse(eid)
 	if u.Host != idp.Host {
+		// log.Println("u.host != idp.Host", u, idp)
 		// Errors from HUB is 302 to https://wayf.wayf.dk/displayerror.php ... which is a 500 with html content
 		u, _ = tp.Resp.Location()
 		tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
@@ -150,8 +161,16 @@ func (tp *Testparams) SSOSendRequest2() {
 	req, _ := base64.StdEncoding.DecodeString(query["SAMLRequest"][0])
 	authnrequest := gosaml.NewXp(gosaml.Inflate(req))
 
+	if tp.Logxml {
+		log.Println("idprequest", authnrequest.Pp())
+	}
+
 	// create a response
 	tp.Newresponse = gosaml.NewResponse(gosaml.IdAndTiming{time.Now(), 4 * time.Minute, 4 * time.Hour, "", ""}, tp.Idpmd, tp.Hubspmd, authnrequest, tp.Attributestmt)
+
+	if tp.Logxml {
+		log.Println("response", tp.Newresponse.Pp())
+	}
 
 	// and sign it
 	assertion := tp.Newresponse.Query(nil, "saml:Assertion[1]")[0]
@@ -181,8 +200,9 @@ func (tp *Testparams) SSOSendRequest2() {
 		}
 
 		tp.Newresponse.Encrypt(assertion, publickey)
+		tp.Encryptresponse = false // for now only possible for idp -> hub
 	}
-	//log.Println(tp.Newresponse.Pp())
+
 	return
 }
 
@@ -190,7 +210,6 @@ func (tp *Testparams) SSOSendRequest2() {
 // It answers yes to the possible WAYF consent page it meets along the way
 // If it encounters an error page it returns immediately
 func (tp *Testparams) SSOSendResponse() {
-	// and POST it to the hub
 	acs := tp.Newresponse.Query1(nil, "@Destination")
 	data := url.Values{}
 	data.Set("SAMLResponse", base64.StdEncoding.EncodeToString([]byte(tp.Newresponse.X2s())))
@@ -205,12 +224,15 @@ func (tp *Testparams) SSOSendResponse() {
 	if u, _ = tp.Resp.Location(); u != nil {
 		if strings.Contains(u.Path, "displayerror.php") {
 			tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
-			//log.Println("Displayerror:", string(tp.Responsebody))
+			if tp.Logxml {
+				log.Println("Displayerror:", string(tp.Responsebody))
+			}
 			return
 		}
 		// and now for some consent
 		if strings.Contains(u.Path, "getconsent.php") {
 			u.RawQuery = u.RawQuery + "&yes=1"
+			tp.ConsentGiven = true
 			tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
 			u, _ = tp.Resp.Location()
 		}
@@ -237,11 +259,13 @@ func (tp *Testparams) sendRequest(url *url.URL, server, method, body string, coo
 		server = url.Host
 	}
 	server += ":443"
+
 	tr := &http.Transport{
 		TLSClientConfig:    &tls.Config{InsecureSkipVerify: true},
 		Dial:               func(network, addr string) (net.Conn, error) { return net.Dial("tcp", server) },
 		DisableCompression: true,
 	}
+
 	client := &http.Client{
 		Transport:     tr,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error { return errors.New("redirect-not-allowed") },
@@ -270,7 +294,8 @@ func (tp *Testparams) sendRequest(url *url.URL, server, method, body string, coo
 	resp, err = client.Do(req)
 	if err != nil && !strings.HasSuffix(err.Error(), "redirect-not-allowed") {
 		// we need to do the redirect ourselves so a self inflicted redirect "error" is not an error
-		log.Fatal(err)
+		debug.PrintStack()
+		log.Fatalln("client.do", err)
 	}
 
 	location, _ := resp.Location()
@@ -305,7 +330,7 @@ func (tp *Testparams) sendRequest(url *url.URL, server, method, body string, coo
 		}
 	}
 
-	if tp.Logrequests {
+	if tp.Trace {
 		log.Printf("%-4s %-70s %s %-15s %s\n", req.Method, host+req.URL.Path, resp.Proto, resp.Status, loc)
 	}
 
@@ -347,14 +372,14 @@ func DoRunTestHub(m modsset) (tp *Testparams) {
 		return DoRunTestKrib(m)
 	}
 	if !*dohub {
-	    return
+		defaulttp = nil
+		return
 	}
-	tp = Newtp() // kind of stupid
-	defer xxx(tp.Logrequests)
+	tp = Newtp()
+	defer xxx(tp.Trace)
 	ApplyMods(tp.Attributestmt, m["attributemods"])
 	tp.SSOCreateInitialRequest()
 	ApplyMods(tp.Initialrequest, m["requestmods"])
-	//    log.Println(tp.Initialrequest.Pp())
 
 	tp.SSOSendRequest()
 	if tp.Resp.StatusCode == 500 {
@@ -369,18 +394,21 @@ func DoRunTestHub(m modsset) (tp *Testparams) {
 		fmt.Println(strings.Trim(response.Query1(nil, `//a[@id="errormsg"]/text()`), "\n "))
 		return
 	}
+	if tp.Logxml {
+		log.Println("idp response", tp.Newresponse.Pp())
+	}
 	return
 }
 
 // DoRunTestBirk runs a test on the hub - applying the necessary modifications on the way
 // Returns a *Testparams which can be analyzed
 func DoRunTestBirk(m modsset) (tp *Testparams) {
-	tp = Newtp()
-	if !tp.Birk {
-		tp = nil
+	if !*dobirk {
+		defaulttp = nil
 		return
 	}
-	defer xxx(tp.Logrequests)
+	tp = Newtp()
+	defer xxx(tp.Trace)
 	tp.Firstidpmd = tp.Birkmd
 	tp.Usedoubleproxy = true
 
@@ -399,6 +427,8 @@ func DoRunTestBirk(m modsset) (tp *Testparams) {
 	u, _ := gosaml.SAMLRequest2Url(authnrequest, "", "", "")
 	tp.Resp.Header.Set("Location", u.String())
 	tp.SSOSendRequest2()
+	// pt. after signing - remember to have a before as well
+
 	if tp.Resp.StatusCode == 500 {
 		fmt.Println(strings.SplitN(string(tp.Responsebody), " ", 2)[1])
 		return
@@ -420,10 +450,11 @@ func DoRunTestBirk(m modsset) (tp *Testparams) {
 // DoRunTestKrib
 func DoRunTestKrib(m modsset) (tp *Testparams) {
 	if !*dokrib {
-	    return
+		defaulttp = nil
+		return
 	}
 	tp = Newtp()
-	defer xxx(tp.Logrequests)
+	defer xxx(tp.Trace)
 	tp.Usedoubleproxy = true
 
 	ApplyMods(tp.Attributestmt, m["attributemods"])
@@ -452,12 +483,14 @@ func DoRunTestKrib(m modsset) (tp *Testparams) {
 		fmt.Println(strings.TrimSpace(string(tp.Responsebody)))
 		return
 	}
-	ApplyMods(tp.Newresponse, m["responsemods"])
-	tp.SSOSendResponse()
 
+	tp.SSOSendResponse()
 	if tp.Resp.StatusCode == 500 {
 		fmt.Println(strings.TrimSpace(string(tp.Responsebody)))
 		return
+	}
+	if tp.Logxml {
+		log.Println("final response", tp.Newresponse.Pp())
 	}
 	return
 }
