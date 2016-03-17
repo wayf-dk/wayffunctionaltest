@@ -18,6 +18,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+    "reflect"
 	"regexp"
 	"strconv"
 	"sync"
@@ -33,6 +34,7 @@ type (
 	mods []mod
 
 	modsset map[string]mods
+    M map[string]interface{} // just an alias
 )
 
 var (
@@ -239,7 +241,24 @@ func Newtp() (tp *Testparams) {
 		}
 	}
 	defaulttp = nil
+	//m := mapFields(tp)
+    //log.Println("Mapped fields: ", m)
 	return
+}
+
+func mapFields(x *Testparams) M {
+    o := make(M)
+    v := reflect.ValueOf(x).Elem()
+    t := v.Type()
+    for i := 0; i < v.NumField(); i++ {
+        f := t.FieldByIndex([]int{i})
+        // skip unexported fields
+        if f.PkgPath != "" {
+            continue
+        }
+        o[f.Name] = v.FieldByIndex([]int{i}).Interface()
+    }
+    return o
 }
 
 func b(attrs map[string][]string) (ats *gosaml.Xp) {
@@ -842,9 +861,9 @@ func TestUnknownIDPError(t *testing.T) {
 // TestFullAttributeset3 test that the full attributeset is delivered to the default test sp - the assertion is encrypted
 func xTestSpeed(t *testing.T) {
 	const gorutines = 10
-	const iterations = 10
-	//spmd, _ := hub_ops.MDQ("https://metadata.wayf.dk/PHPh")
-	//defaulttp = &Testparams{Spmd: spmd}
+	const iterations = 100
+	spmd, _ := hub_ops.MDQ("https://metadata.wayf.dk/PHPh")
+	defaulttp = &Testparams{Spmd: spmd}
 	for i := 0; i < gorutines; i++ {
 		wg.Add(1)
 		go func(i int) {
