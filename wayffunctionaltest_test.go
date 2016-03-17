@@ -314,6 +314,39 @@ false false false
 	stdoutend(t, expected)
 }
 
+// TestConsentDisabled tests that a SP with consent.disabled set actually bypasses the consent form
+func TestConsentDisabled(t *testing.T) {
+	stdoutstart()
+	// We need to get at the wayf:wayf elements - thus we got directly to the feed !!!
+	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
+	expected := ""
+	entities := spmd.Query(nil, "//wayf:wayf[wayf:redirect.validate='' and wayf:consent.disable='1']/../../md:SPSSODescriptor/..")
+	if len(entities) > 0 {
+        entitymd := gosaml.NewXpFromNode(entities[0])
+
+        dorun := func(f testrun) {
+            defaulttp = &Testparams{Spmd: entitymd}
+            tp := f(nil)
+            if tp != nil {
+                fmt.Printf("consent given %t\n", tp.ConsentGiven)
+            }
+        }
+        if *dohub {
+            dorun(DoRunTestHub)
+            expected += `consent given false
+`
+        }
+        if *dobirk {
+           dorun(DoRunTestBirk)
+           expected += `consent given true
+`
+        }
+	} else {
+	    expected += "no entity suited for test found"
+	}
+	stdoutend(t, expected)
+}
+
 // TestPersistentNameID tests that the persistent nameID (and eptid) is the same from both the hub and BIRK
 func TestPersistentNameID(t *testing.T) {
 	stdoutstart()
