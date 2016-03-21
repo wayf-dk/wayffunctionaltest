@@ -38,13 +38,12 @@ type (
 )
 
 var (
-	//mdq = "https://phph.wayf.dk/MDQ/"
-	mdq = "https://test-phph.test.lan/MDQ/"
 
 	mdqsources = map[string]map[string]string{
 		"prod": {
 			"wayf-hub-public": "/home/mz/prod_hub.mddb",
 			"HUB-OPS":         "/home/mz/prod_hub_ops.mddb",
+			"TEST-HUB-OPS":    "/home/mz/test_hub_ops.mddb",
 			"BIRK-OPS":        "/home/mz/prod_birk.mddb",
 		},
 		"hybrid": {
@@ -54,9 +53,8 @@ var (
 		},
 	}
 
-	wayf_hub_public, hub_ops, birk_ops *lMDQ.MDQ
-
-	defaulttp *Testparams
+    // test_hub_ops is for being able to lookup up wayf:wayf elements - not yet in prod phph feeds
+	wayf_hub_public, hub_ops, test_hub_ops, birk_ops *lMDQ.MDQ
 
 	avals = map[string][]string{
 		"eduPersonPrincipalName": {"joe@this.is.not.a.valid.idp"},
@@ -82,7 +80,7 @@ var (
 	hubbe            = flag.String("hubbe", "", "the hub backend server")
 	birk             = flag.String("birk", "birk.wayf.dk", "the hostname for the BIRK server to be tested")
 	birkbe           = flag.String("birkbe", "", "the birk backend server")
-	trace            = flag.Bool("xrace", false, "trace the request/response flow")
+	trace            = flag.Bool("xtrace", false, "trace the request/response flow")
 	logxml           = flag.Bool("logxml", false, "dump requests/responses in xml")
 	dohub            = flag.Bool("dohub", false, "do test the hub")
 	dobirk           = flag.Bool("dobirk", false, "do test BIRK")
@@ -91,6 +89,8 @@ var (
 	testcertpath     = flag.String("testcertpath", "/etc/ssl/wayf/certs/wildcard.test.lan.pem", "path to the testing cert")
 	wayfAttCSDoc     = gosaml.NewXp(main.Wayfrequestedattributes)
 	wayfAttCSElement = wayfAttCSDoc.Query(nil, "./md:SPSSODescriptor/md:AttributeConsumingService")[0]
+
+	testSPs *gosaml.Xp
 
 	old, r, w      *os.File
 	outC           = make(chan string)
@@ -147,9 +147,22 @@ func stdoutend(t *testing.T, expected string) {
 func TestMain(m *testing.M) {
 	flag.Parse()
 	log.Printf("hub: %q backend: %q birk: %q backend: %q\n", *hub, *hubbe, *birk, *birkbe)
-	wayf_hub_public, _ = lMDQ.Open(mdqsources[*env]["wayf-hub-public"])
-	hub_ops, _ = lMDQ.Open(mdqsources[*env]["HUB-OPS"])
-	birk_ops, _ = lMDQ.Open(mdqsources[*env]["BIRK-OPS"])
+	mdsources := map[string]**lMDQ.MDQ{
+	    "wayf-hub-public":      &wayf_hub_public,
+	    "HUB-OPS":              &hub_ops,
+	    "TEST-HUB-OPS":         &test_hub_ops,
+	    "BIRK-OPS":             &birk_ops,
+	}
+	var err error
+	for path, md := range mdsources {
+	    *md, err = lMDQ.Open(mdqsources[*env][path])
+	    if err != nil {
+	        log.Fatalln(err)
+	    }
+	}
+	// need non-birk, non-request.validate and non-IDPList SPs for testing ....
+	// look for them in the test_hub_ops feed as wayf:wayf attributes are not yet int the prod feed
+	testSPs, _ = test_hub_ops.MDQFilter("/*[not(starts-with(@entityID, 'https://birk.wayf.dk/birk.php'))]/*/wayf:wayf[not(wayf:IDPList!='') and  wayf:redirect.validate='']/../..")
 	os.Exit(m.Run())
 }
 
@@ -163,12 +176,12 @@ func newMD(mdq string) (mdxp *gosaml.Xp) {
 	return
 }
 
-func Newtp() (tp *Testparams) {
-	privatekeypw := os.Getenv("PW")
-	if privatekeypw == "" {
+func Newtp(overwrite *Testparams) (tp *Testparams) {
+	tp = new(Testparams)
+	tp.Privatekeypw = os.Getenv("PW")
+	if tp.Privatekeypw == "" {
 		log.Fatal("no PW environment var")
 	}
-	tp = new(Testparams)
 	tp.Env = *env
 	tp.Krib = *dokrib
 	tp.Birk = *dobirk
@@ -225,24 +238,22 @@ func Newtp() (tp *Testparams) {
 		log.Fatal(err)
 	}
 	tp.Privatekey = string(pk)
-	tp.Privatekeypw = os.Getenv("PW")
-	if defaulttp != nil {
-		if defaulttp.Encryptresponse {
+	if overwrite != nil {
+		if overwrite.Encryptresponse {
 			tp.Encryptresponse = true
 		}
-		if defaulttp.Spmd != nil {
-			tp.Spmd = defaulttp.Spmd
+		if overwrite.Spmd != nil {
+			tp.Spmd = overwrite.Spmd
 		}
-		if defaulttp.Privatekey != "" {
-			tp.Privatekey = defaulttp.Privatekey
+		if overwrite.Privatekey != "" {
+			tp.Privatekey = overwrite.Privatekey
 		}
-		if defaulttp.Privatekeypw != "" {
-			tp.Privatekeypw = defaulttp.Privatekeypw
+		if overwrite.Privatekeypw != "" {
+			tp.Privatekeypw = overwrite.Privatekeypw
 		}
 	}
-	defaulttp = nil
-	//m := mapFields(tp)
-    //log.Println("Mapped fields: ", m)
+//	m := mapFields(tp)
+//    log.Println("Mapped fields: ", m)
 	return
 }
 
@@ -252,10 +263,6 @@ func mapFields(x *Testparams) M {
     t := v.Type()
     for i := 0; i < v.NumField(); i++ {
         f := t.FieldByIndex([]int{i})
-        // skip unexported fields
-        if f.PkgPath != "" {
-            continue
-        }
         o[f.Name] = v.FieldByIndex([]int{i}).Interface()
     }
     return o
@@ -293,19 +300,18 @@ func TestAttributeNameFormat(t *testing.T) {
 	)
 	stdoutstart()
 	// We need to get at the wayf:wayf elements - thus we got directly to the feed !!!
-	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
-	uri := spmd.Query(nil, "//wayf:wayf[wayf:AttributeNameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:uri' and wayf:redirect.validate='']/../..")
-	urimd := gosaml.NewXpFromNode(uri[0])
-	basic := spmd.Query(nil, "//wayf:wayf[wayf:AttributeNameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:basic' and wayf:redirect.validate='']/../..")
-	basicmd := gosaml.NewXpFromNode(basic[0])
-	both := spmd.Query(nil, "//wayf:wayf[wayf:AttributeNameFormat='' and wayf:redirect.validate='']/../..")
-	bothmd := gosaml.NewXpFromNode(both[0])
+    //	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
+	uri := testSPs.Query1(nil, "/*/*/*/wayf:wayf[wayf:AttributeNameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:uri']/../../@entityID")
+	urimd, _ := hub_ops.MDQ(uri)
+	basic := testSPs.Query1(nil, "/*/*/*/wayf:wayf[wayf:AttributeNameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:basic']/../../@entityID")
+	basicmd, _ := hub_ops.MDQ(basic)
+	both := testSPs.Query1(nil, "/*/*/*/wayf:wayf[wayf:AttributeNameFormat='']/../../@entityID")
+	bothmd, _ := hub_ops.MDQ(both)
 
 	dorun := func(f testrun) {
 		sps := []*gosaml.Xp{urimd, basicmd, bothmd}
 		for _, md := range sps {
-			defaulttp = &Testparams{Spmd: md}
-			tp := f(nil)
+			tp := f(nil, &Testparams{Spmd: md})
 			if tp != nil {
 				//samlresponse := Html2SAMLResponse(tp)
 				requested := md.QueryNumber(nil, mdcount)
@@ -337,15 +343,15 @@ false false false
 func TestConsentDisabled(t *testing.T) {
 	stdoutstart()
 	// We need to get at the wayf:wayf elements - thus we got directly to the feed !!!
-	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
+//	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
 	expected := ""
-	entities := spmd.Query(nil, "//wayf:wayf[wayf:redirect.validate='' and wayf:consent.disable='1']/../../md:SPSSODescriptor/..")
-	if len(entities) > 0 {
-        entitymd := gosaml.NewXpFromNode(entities[0])
+	// find an entity with content disabled, but no a birk entity as we know that using ssp does not understand the wayf namespace yet ...
+	entityID := testSPs.Query1(nil, "/*/*/*/wayf:wayf[wayf:consent.disable='1']/../../md:SPSSODescriptor/../@entityID")
+	if  entityID != "" {
+        entitymd, _ := hub_ops.MDQ(entityID)
 
         dorun := func(f testrun) {
-            defaulttp = &Testparams{Spmd: entitymd}
-            tp := f(nil)
+            tp := f(nil, &Testparams{Spmd: entitymd})
             if tp != nil {
                 fmt.Printf("consent given %t\n", tp.ConsentGiven)
             }
@@ -370,14 +376,13 @@ func TestConsentDisabled(t *testing.T) {
 func TestPersistentNameID(t *testing.T) {
 	stdoutstart()
 	// We need to get at the wayf:wayf elements - thus we got directly to the feed !!!
-	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
+//	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
 	expected := ""
-	entities := spmd.Query(nil, "//wayf:wayf[wayf:redirect.validate='']/../../md:SPSSODescriptor/md:NameIDFormat[.='urn:oasis:names:tc:SAML:2.0:nameid-format:persistent']/../..")
-	entitymd := gosaml.NewXpFromNode(entities[0])
+	entityID := testSPs.Query1(nil, "/*/*/md:SPSSODescriptor/md:NameIDFormat[.='urn:oasis:names:tc:SAML:2.0:nameid-format:persistent']/../../@entityID")
+	entitymd, _ := hub_ops.MDQ(entityID)
 
 	dorun := func(f testrun) {
-		defaulttp = &Testparams{Spmd: entitymd}
-		tp := f(nil)
+		tp := f(nil, &Testparams{Spmd: entitymd})
 		if tp != nil {
 			samlresponse := Html2SAMLResponse(tp)
 			entityID := entitymd.Query1(nil, "@entityID")
@@ -399,15 +404,14 @@ func TestPersistentNameID(t *testing.T) {
 func TestTransientNameID(t *testing.T) {
 	stdoutstart()
 	// We need to get at the wayf:wayf elements - thus we got directly to the feed !!!
-	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
+//	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
 	expected := ""
-	entities := spmd.Query(nil, "//wayf:wayf[wayf:redirect.validate='']/../../md:SPSSODescriptor/md:NameIDFormat[.='urn:oasis:names:tc:SAML:2.0:nameid-format:transient']/../..")
-	entitymd := gosaml.NewXpFromNode(entities[0])
+	eID := testSPs.Query1(nil, "/*/*/md:SPSSODescriptor/md:NameIDFormat[.='urn:oasis:names:tc:SAML:2.0:nameid-format:transient']/../../@entityID")
+	entitymd, _ := hub_ops.MDQ(eID)
 	var tp *Testparams
 	entityID := ""
 	dorun := func(f testrun) {
-		defaulttp = &Testparams{Spmd: entitymd}
-		tp = f(nil)
+		tp = f(nil, &Testparams{Spmd: entitymd})
 		if tp != nil {
 			samlresponse := Html2SAMLResponse(tp)
 			entityID = entitymd.Query1(nil, "@entityID")
@@ -424,7 +428,11 @@ func TestTransientNameID(t *testing.T) {
 	}
 	dorun(DoRunTestBirk)
 	if tp != nil {
-		birkEntityID := regexp.MustCompile("https?://(.*)").ReplaceAllString(entityID, "https://birk.wayf.dk/birk.php/${1}-proxy")
+	    reg := regexp.MustCompile("^https?://(.*)")
+		birkEntityID := reg.ReplaceAllString(entityID, "https://birk.wayf.dk/birk.php/${1}-proxy")
+		if !reg.MatchString(birkEntityID) { // urn format
+		    birkEntityID = "urn:oid:1.3.6.1.4.1.39153:42:" + birkEntityID
+		}
 		expected += `urn:oasis:names:tc:SAML:2.0:nameid-format:transient true ` + entityID + ` ` + birkEntityID + "\n"
 	}
 	stdoutend(t, expected)
@@ -460,9 +468,9 @@ func TestUnspecifiedNameID(t *testing.T) {
 func TestFullAttributeset(t *testing.T) {
 	var expected string
 	stdoutstart()
-	hub := DoRunTestHub(nil)
+	hub := DoRunTestHub(nil, nil)
 	if hub == nil {
-		hub = DoRunTestBirk(nil)
+		hub = DoRunTestBirk(nil, nil)
 	}
 	if hub != nil {
 		hub.Newresponse.AttributeCanonicalDump()
@@ -546,7 +554,7 @@ urn:oid:2.5.4.42 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     Anton Banton <SamlRequest id="abc">abc</SamlRequest>
 `
 	}
-	krib := DoRunTestKrib(nil)
+	krib := DoRunTestKrib(nil, nil)
 	if krib != nil {
 		krib.Newresponse.AttributeCanonicalDump()
 		expected += `cn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
@@ -598,8 +606,8 @@ func TestFullAttributesetSP2(t *testing.T) {
 	var expected string
 	stdoutstart()
 	spmd, _ := hub_ops.MDQ("https://metadata.wayf.dk/PHPh")
-	defaulttp = &Testparams{Spmd: spmd}
-	hub := DoRunTestHub(nil)
+	overwrite := &Testparams{Spmd: spmd}
+	hub := DoRunTestHub(nil, overwrite)
 	if hub != nil {
 		hub.Newresponse.AttributeCanonicalDump()
 		expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
@@ -608,8 +616,7 @@ urn:oid:1.3.6.1.4.1.5923.1.1.1.6 urn:oasis:names:tc:SAML:2.0:attrname-format:bas
     joe@this.is.not.a.valid.idp
 `
 	}
-	defaulttp = &Testparams{Spmd: spmd}
-	birk := DoRunTestBirk(nil)
+	birk := DoRunTestBirk(nil, overwrite)
 	if birk != nil {
 		birk.Newresponse.AttributeCanonicalDump()
 		expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
@@ -618,8 +625,7 @@ urn:oid:1.3.6.1.4.1.5923.1.1.1.6 urn:oasis:names:tc:SAML:2.0:attrname-format:bas
     joe@this.is.not.a.valid.idp
 `
 	}
-	defaulttp = &Testparams{Spmd: spmd}
-	krib := DoRunTestKrib(nil)
+	krib := DoRunTestKrib(nil, overwrite)
 	if krib != nil {
 		krib.Newresponse.AttributeCanonicalDump()
 		expected += `urn:oid:1.3.6.1.4.1.5923.1.1.1.6 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
@@ -634,11 +640,10 @@ func TestFullEnctryptedAttributeset(t *testing.T) {
 	var expected string
 	stdoutstart()
 	spmd, _ := hub_ops.MDQ("https://metadata.wayf.dk/PHPh")
-	defaulttp = &Testparams{Encryptresponse: true, Spmd: spmd}
-	hub := DoRunTestHub(nil)
+	overwrite := &Testparams{Encryptresponse: true, Spmd: spmd}
+	hub := DoRunTestHub(nil, overwrite)
 	if hub == nil {
-		defaulttp = &Testparams{Encryptresponse: true, Spmd: spmd}
-		hub = DoRunTestBirk(nil)
+		hub = DoRunTestBirk(nil, overwrite)
 	}
 	if hub != nil {
 		hub.Newresponse.AttributeCanonicalDump()
@@ -648,8 +653,7 @@ urn:oid:1.3.6.1.4.1.5923.1.1.1.6 urn:oasis:names:tc:SAML:2.0:attrname-format:bas
     joe@this.is.not.a.valid.idp
 `
 	}
-	defaulttp = &Testparams{Encryptresponse: true, Spmd: spmd}
-	krib := DoRunTestKrib(nil)
+	krib := DoRunTestKrib(nil, overwrite)
 	if krib != nil {
 		krib.Newresponse.AttributeCanonicalDump()
 		expected += `urn:oid:1.3.6.1.4.1.5923.1.1.1.6 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
@@ -664,11 +668,11 @@ func TestSignErrorModifiedContent(t *testing.T) {
 	var expected string
 	stdoutstart()
 	m := modsset{"responsemods": mods{mod{"//saml:Assertion/saml:Issuer", "+ 1234"}}}
-	if DoRunTestHub(m) != nil {
+	if DoRunTestHub(m, nil) != nil {
 		expected += `Reference validation failed
 `
 	}
-	if DoRunTestBirk(m) != nil {
+	if DoRunTestBirk(m, nil) != nil {
 		expected += `Error verifying signature on incoming SAMLResponse
 `
 	}
@@ -680,11 +684,11 @@ func TestSignErrorModifiedSignature(t *testing.T) {
 	var expected string
 	stdoutstart()
 	m := modsset{"responsemods": mods{mod{"//saml:Assertion//ds:SignatureValue", "+ 1234"}}}
-	if DoRunTestHub(m) != nil {
+	if DoRunTestHub(m, nil) != nil {
 		expected += `Unable to validate Signature
 `
 	}
-	if DoRunTestBirk(m) != nil {
+	if DoRunTestBirk(m, nil) != nil {
 		expected += `Error verifying signature on incoming SAMLResponse
 `
 	}
@@ -696,11 +700,11 @@ func TestNoSignatureError(t *testing.T) {
 	var expected string
 	stdoutstart()
 	m := modsset{"responsemods": mods{mod{"//ds:Signature", ""}}}
-	if DoRunTestHub(m) != nil {
+	if DoRunTestHub(m, nil) != nil {
 		expected += `Neither the assertion nor the response was signed.
 `
 	}
-	if DoRunTestBirk(m) != nil {
+	if DoRunTestBirk(m, nil) != nil {
 		expected += `Error verifying signature on incoming SAMLResponse
 `
 	}
@@ -741,10 +745,9 @@ mYqIGJZzLM/wk1u/CG52i+zDOiYbeiYNZc7qhIFU9ueinr88YZo=
 -----END RSA PRIVATE KEY-----
 `
 
-	defaulttp = &Testparams{Privatekey: pk, Privatekeypw: "-"}
 	// need to do resign before sending to birk - not able to do that pt
 	//	_ = DoRunTestBirk(nil)
-	if DoRunTestHub(nil) != nil {
+	if DoRunTestHub(nil, &Testparams{Privatekey: pk, Privatekeypw: "-"}) != nil {
 		expected += `Unable to validate Signature
 `
 	}
@@ -756,11 +759,11 @@ func TestRequestSchemaError(t *testing.T) {
 	var expected string
 	stdoutstart()
 	m := modsset{"requestmods": mods{mod{"./@IsPassive", "isfalse"}}}
-	if DoRunTestHub(m) != nil {
+	if DoRunTestHub(m, nil) != nil {
 		expected += `Invalid value of boolean attribute 'IsPassive': 'isfalse'
 `
 	}
-	if DoRunTestBirk(m) != nil {
+	if DoRunTestBirk(m, nil) != nil {
 		expected += `SAMLMessage does not validate according to schema: , error(s): line: 2:0, error: Element '{urn:oasis:names:tc:SAML:2.0:protocol}AuthnRequest', attribute 'IsPassive': 'isfalse' is not a valid value of the atomic type 'xs:boolean'.
 `
 	}
@@ -772,11 +775,11 @@ func TestResponseSchemaError(t *testing.T) {
 	var expected string
 	stdoutstart()
 	m := modsset{"responsemods": mods{mod{"./@IssueInstant", "isfalse"}}}
-	if DoRunTestHub(m) != nil {
+	if DoRunTestHub(m, nil) != nil {
 		expected += `Invalid SAML2 timestamp passed to parseSAML2Time: isfalse
 `
 	}
-	if DoRunTestBirk(m) != nil {
+	if DoRunTestBirk(m, nil) != nil {
 		expected += `SAMLMessage does not validate according to schema: , error(s): line: 2:0, error: Element '{urn:oasis:names:tc:SAML:2.0:protocol}Response', attribute 'IssueInstant': 'isfalse' is not a valid value of the atomic type 'xs:dateTime'.
 `
 	}
@@ -788,7 +791,7 @@ func TestNoEPPNError(t *testing.T) {
 	var expected string
 	stdoutstart()
 	m := modsset{"attributemods": mods{mod{`//saml:Attribute[@Name="eduPersonPrincipalName"]`, ""}}}
-	if DoRunTestHub(m) != nil {
+	if DoRunTestHub(m, nil) != nil {
 		expected += `mandatory: eduPersonPrincipalName
 `
 	}
@@ -800,7 +803,7 @@ func TestEPPNScopingError(t *testing.T) {
 	var expected string
 	stdoutstart()
 	m := modsset{"attributemods": mods{mod{`/./././saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue`, "joe@example.com"}}}
-	if DoRunTestHub(m) != nil {
+	if DoRunTestHub(m, nil) != nil {
 		expected += ``
 	}
 	stdoutend(t, expected)
@@ -811,7 +814,7 @@ func TestNoLocalpartInEPPNError(t *testing.T) {
 	var expected string
 	stdoutstart()
 	m := modsset{"attributemods": mods{mod{`/./././saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue`, "@this.is.not.a.valid.idp"}}}
-	if DoRunTestHub(m) != nil {
+	if DoRunTestHub(m, nil) != nil {
 		expected += ``
 	}
 	stdoutend(t, expected)
@@ -822,7 +825,7 @@ func TestNoDomainInEPPNError(t *testing.T) {
 	var expected string
 	stdoutstart()
 	m := modsset{"attributemods": mods{mod{`/./././saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue`, "joe"}}}
-	if DoRunTestHub(m) != nil {
+	if DoRunTestHub(m, nil) != nil {
 		expected += ``
 	}
 	stdoutend(t, expected)
@@ -833,11 +836,11 @@ func TestUnknownSPError(t *testing.T) {
 	var expected string
 	stdoutstart()
 	m := modsset{"requestmods": mods{mod{"./saml:Issuer", "https://www.example.com/unknownentity"}}}
-	if DoRunTestHub(m) != nil {
+	if DoRunTestHub(m, nil) != nil {
 		expected += `Metadata not found for entity: https://www.example.com/unknownentity
 `
 	}
-	if DoRunTestBirk(m) != nil {
+	if DoRunTestBirk(m, nil) != nil {
 		expected += `Metadata for entity: https://www.example.com/unknownentity not found
 `
 	}
@@ -851,7 +854,7 @@ func TestUnknownIDPError(t *testing.T) {
 	var expected string
 	stdoutstart()
 	m := modsset{"requestmods": mods{mod{"./@Destination", "https://birk.wayf.dk/birk.php/www.example.com/unknownentity"}}}
-	if DoRunTestBirk(m) != nil {
+	if DoRunTestBirk(m, nil) != nil {
 		expected += `Metadata for entity: https://birk.wayf.dk/birk.php/www.example.com/unknownentity not found
 `
 	}
@@ -863,12 +866,11 @@ func xTestSpeed(t *testing.T) {
 	const gorutines = 10
 	const iterations = 100
 	spmd, _ := hub_ops.MDQ("https://metadata.wayf.dk/PHPh")
-	defaulttp = &Testparams{Spmd: spmd}
 	for i := 0; i < gorutines; i++ {
 		wg.Add(1)
 		go func(i int) {
 			for j := 0; j < iterations; j++ {
-				DoRunTestHub(nil)
+				DoRunTestHub(nil, &Testparams{Spmd: spmd})
 				log.Println(i, j)
 			}
 			wg.Done()
