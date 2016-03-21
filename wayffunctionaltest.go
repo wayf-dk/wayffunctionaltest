@@ -70,7 +70,7 @@ type (
 		ConsentGiven                                       bool
 	}
 
-	testrun func(modsset) *Testparams
+	testrun func(modsset, *Testparams) *Testparams
 )
 
 // SSOCreateInitialRequest creates a SAMLRequest given the tp Testparams
@@ -100,6 +100,7 @@ func (tp *Testparams) SSOSendRequest() {
 func (tp *Testparams) SSOSendRequest1() {
 
 	if tp.Logxml {
+	    log.Println(tp)
 		log.Println("initialrequest:", tp.Initialrequest.Pp())
 	}
 	u, _ := gosaml.SAMLRequest2Url(tp.Initialrequest, "", "", "")
@@ -149,7 +150,7 @@ func (tp *Testparams) SSOSendRequest2() {
 	eid := tp.Idpmd.Query1(nil, "@entityID")
 	idp, _ := url.Parse(eid)
 	if u.Host != idp.Host {
-		// log.Println("u.host != idp.Host", u, idp)
+		//log.Println("u.host != idp.Host", u, idp)
 		// Errors from HUB is 302 to https://wayf.wayf.dk/displayerror.php ... which is a 500 with html content
 		u, _ = tp.Resp.Location()
 		tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
@@ -367,15 +368,14 @@ func ApplyMods(xp *gosaml.Xp, m mods) {
 
 // DoRunTestHub runs a test on the hub - applying the necessary modifications on the way.
 // Returns a *Testparams which can be analyzed
-func DoRunTestHub(m modsset) (tp *Testparams) {
+func DoRunTestHub(m modsset, overwrite *Testparams) (tp *Testparams) {
 	if *dokrib {
-		return DoRunTestKrib(m)
+		return DoRunTestKrib(m, overwrite)
 	}
 	if !*dohub {
-		defaulttp = nil
 		return
 	}
-	tp = Newtp()
+	tp = Newtp(overwrite)
 	defer xxx(tp.Trace)
 	ApplyMods(tp.Attributestmt, m["attributemods"])
 	tp.SSOCreateInitialRequest()
@@ -402,12 +402,11 @@ func DoRunTestHub(m modsset) (tp *Testparams) {
 
 // DoRunTestBirk runs a test on the hub - applying the necessary modifications on the way
 // Returns a *Testparams which can be analyzed
-func DoRunTestBirk(m modsset) (tp *Testparams) {
+func DoRunTestBirk(m modsset, overwrite *Testparams) (tp *Testparams) {
 	if !*dobirk {
-		defaulttp = nil
 		return
 	}
-	tp = Newtp()
+	tp = Newtp(overwrite)
 	defer xxx(tp.Trace)
 	tp.Firstidpmd = tp.Birkmd
 	tp.Usedoubleproxy = true
@@ -448,12 +447,11 @@ func DoRunTestBirk(m modsset) (tp *Testparams) {
 }
 
 // DoRunTestKrib
-func DoRunTestKrib(m modsset) (tp *Testparams) {
+func DoRunTestKrib(m modsset, overwrite *Testparams) (tp *Testparams) {
 	if !*dokrib {
-		defaulttp = nil
 		return
 	}
-	tp = Newtp()
+	tp = Newtp(overwrite)
 	defer xxx(tp.Trace)
 	tp.Usedoubleproxy = true
 
