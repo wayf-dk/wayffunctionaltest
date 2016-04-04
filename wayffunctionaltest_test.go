@@ -24,6 +24,7 @@ import (
 	"sync"
 	"testing"
 	"text/template"
+	"time"
 )
 
 type (
@@ -41,13 +42,13 @@ var (
 
 	mdqsources = map[string]map[string]string{
 		"prod": {
-			"wayf-hub-public": "/home/mz/prod_hub.mddb",
+			"WAYF-HUB-PUBLIC": "/home/mz/prod_hub.mddb",
 			"HUB-OPS":         "/home/mz/prod_hub_ops.mddb",
 			"TEST-HUB-OPS":    "/home/mz/test_hub_ops.mddb",
 			"BIRK-OPS":        "/home/mz/prod_birk.mddb",
 		},
 		"hybrid": {
-			"wayf-hub-public": "/home/mz/test_hub.mddb",
+			"WAYF-HUB-PUBLIC": "/home/mz/test_hub.mddb",
 			"HUB-OPS":         "/home/mz/test_hub_ops.mddb",
 			"BIRK-OPS":        "/home/mz/test_edugain.mddb",
 		},
@@ -148,7 +149,7 @@ func TestMain(m *testing.M) {
 	flag.Parse()
 	log.Printf("hub: %q backend: %q birk: %q backend: %q\n", *hub, *hubbe, *birk, *birkbe)
 	mdsources := map[string]**lMDQ.MDQ{
-	    "wayf-hub-public":      &wayf_hub_public,
+	    "WAYF-HUB-PUBLIC":      &wayf_hub_public,
 	    "HUB-OPS":              &hub_ops,
 	    "TEST-HUB-OPS":         &test_hub_ops,
 	    "BIRK-OPS":             &birk_ops,
@@ -162,18 +163,8 @@ func TestMain(m *testing.M) {
 	}
 	// need non-birk, non-request.validate and non-IDPList SPs for testing ....
 	// look for them in the test_hub_ops feed as wayf:wayf attributes are not yet int the prod feed
-	testSPs, _ = test_hub_ops.MDQFilter("/*[not(starts-with(@entityID, 'https://birk.wayf.dk/birk.php'))]/*/wayf:wayf[not(wayf:IDPList!='') and  wayf:redirect.validate='']/../..")
+	testSPs, _ = test_hub_ops.MDQFilter("/*[not(starts-with(@entityID, 'https://birk.wayf.dk/birk.php'))]/*/wayf:wayf[not(wayf:IDPList!='') and wayf:redirect.validate='']/../..")
 	os.Exit(m.Run())
-}
-
-func newMD(mdq string) (mdxp *gosaml.Xp) {
-	// full EntitiesDescriptor xml
-	md, err := lMDQ.Get(mdq)
-	if err != nil {
-		log.Fatalf("could not get: %s, error: %s", mdq, err)
-	}
-	mdxp = gosaml.NewXp(md)
-	return
 }
 
 func Newtp(overwrite *Testparams) (tp *Testparams) {
@@ -192,13 +183,13 @@ func Newtp(overwrite *Testparams) (tp *Testparams) {
 	tp.Hubidpmd, _ = wayf_hub_public.MDQ("https://wayf.wayf.dk")
 
 	wayfserver := "wayf.wayf.dk"
-
+/*
 	if tp.Env == "beta" {
 		wayfserver = "betawayf.wayf.dk"
 		tp.Hubspmd = newMD("https://betawayf.wayf.dk/module.php/saml/sp/metadata.php/betawayf.wayf.dk")
 		tp.Hubidpmd = newMD("https://betawayf.wayf.dk/saml2/idp/metadata.php")
 	}
-
+*/
 	tp.Resolv = map[string]string{wayfserver: *hub, "birk.wayf.dk": *birk}
 	tp.Idpmd, _ = hub_ops.MDQ("https://this.is.not.a.valid.idp")
 	tp.Firstidpmd = tp.Hubidpmd
@@ -861,17 +852,17 @@ func TestUnknownIDPError(t *testing.T) {
 	stdoutend(t, expected)
 }
 
-// TestFullAttributeset3 test that the full attributeset is delivered to the default test sp - the assertion is encrypted
-func xTestSpeed(t *testing.T) {
-	const gorutines = 10
-	const iterations = 100
+func TestSpeed(t *testing.T) {
+	const gorutines = 50
+	const iterations = 50
 	spmd, _ := hub_ops.MDQ("https://metadata.wayf.dk/PHPh")
 	for i := 0; i < gorutines; i++ {
 		wg.Add(1)
 		go func(i int) {
 			for j := 0; j < iterations; j++ {
+				starttime := time.Now()
 				DoRunTestHub(nil, &Testparams{Spmd: spmd})
-				log.Println(i, j)
+				log.Println(i, j, time.Since(starttime).Seconds())
 			}
 			wg.Done()
 		}(i)
