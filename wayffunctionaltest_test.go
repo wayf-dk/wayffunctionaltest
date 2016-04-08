@@ -18,7 +18,7 @@ import (
 	"log"
 	"net/http"
 	"os"
-    "reflect"
+	"reflect"
 	"regexp"
 	"strconv"
 	"sync"
@@ -35,27 +35,29 @@ type (
 	mods []mod
 
 	modsset map[string]mods
-    M map[string]interface{} // just an alias
+	M       map[string]interface{} // just an alias
+)
+
+const (
+	lMDQ_METADATA_SCHEMA_PATH = "/home/mz/src/github.com/wayf-dk/gosaml/schemas/saml-schema-metadata-2.0.xsd"
 )
 
 var (
-
-	mdqsources = map[string]map[string]string{
+	mdqsources = map[string]map[string]*lMDQ.MDQ{
 		"prod": {
-			"WAYF-HUB-PUBLIC": "/home/mz/prod_hub.mddb",
-			"HUB-OPS":         "/home/mz/prod_hub_ops.mddb",
-			"TEST-HUB-OPS":    "/home/mz/test_hub_ops.mddb",
-			"BIRK-OPS":        "/home/mz/prod_birk.mddb",
+			"WAYF-HUB-PUBLIC": &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_hub.mddb", Url: "https://phph.wayf.dk/md/wayf-hub.xml", Hash: "f328b1e2b9edeb416403ac70601bc1306f74a836", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+			//			"HUB-OPS":         &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_hub_ops.mddb", Url: "https://test-phph.test.lan/MDQ/HUB-OPS/entities/HUB-OPS.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+			"HUB-OPS":  &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_hub_ops.mddb", Url: "https://phph.wayf.dk/md/HUB.xml", Hash: "f328b1e2b9edeb416403ac70601bc1306f74a836", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+			"BIRK-OPS": &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_birk.mddb", Url: "https://phph.wayf.dk/md/birk-idp-public.xml", Hash: "f328b1e2b9edeb416403ac70601bc1306f74a836", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
 		},
 		"hybrid": {
-			"WAYF-HUB-PUBLIC": "/home/mz/test_hub.mddb",
-			"HUB-OPS":         "/home/mz/test_hub_ops.mddb",
-			"BIRK-OPS":        "/home/mz/test_edugain.mddb",
+			"WAYF-HUB-PUBLIC": &lMDQ.MDQ{Silent: true, Path: "/tmp/test_hub.mddb", Url: "https://test-phph.test.lan/MDQ/HUB-OPS/entities/HUB-OPS.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+			"HUB-OPS":         &lMDQ.MDQ{Silent: true, Path: "/tmp/test_hub_ops.mddb", Url: "https://phph.wayf.dk/md/wayf-hub.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+			"BIRK-OPS":        &lMDQ.MDQ{Silent: true, Path: "/tmp/test_edugain.mddb", Url: "https://test-phph.test.lan/test-md/MEC.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
 		},
 	}
 
-    // test_hub_ops is for being able to lookup up wayf:wayf elements - not yet in prod phph feeds
-	wayf_hub_public, hub_ops, test_hub_ops, birk_ops *lMDQ.MDQ
+	wayf_hub_public, hub_ops, birk_ops *lMDQ.MDQ
 
 	avals = map[string][]string{
 		"eduPersonPrincipalName": {"joe@this.is.not.a.valid.idp"},
@@ -87,6 +89,7 @@ var (
 	dobirk           = flag.Bool("dobirk", false, "do test BIRK")
 	dokrib           = flag.Bool("dokrib", false, "do (only) test KRIB - implies !birk and !hub")
 	env              = flag.String("env", "dev", "which environment to test dev, hybrid, prod - if not dev")
+	refreshmd        = flag.Bool("refreshmd", true, "update local metadatcache before testing")
 	testcertpath     = flag.String("testcertpath", "/etc/ssl/wayf/certs/wildcard.test.lan.pem", "path to the testing cert")
 	wayfAttCSDoc     = gosaml.NewXp(main.Wayfrequestedattributes)
 	wayfAttCSElement = wayfAttCSDoc.Query(nil, "./md:SPSSODescriptor/md:AttributeConsumingService")[0]
@@ -113,9 +116,37 @@ var (
 			"pnameid": "WAYF-DK-c52a92a5467ae336a2be77cd06719c645e72dfd2",
 		},
 	}
-
 	wg sync.WaitGroup
 )
+
+func TestMain(m *testing.M) {
+	flag.Parse()
+	log.Printf("hub: %q backend: %q birk: %q backend: %q\n", *hub, *hubbe, *birk, *birkbe)
+	mdsources := map[string]**lMDQ.MDQ{
+		"WAYF-HUB-PUBLIC": &wayf_hub_public,
+		"HUB-OPS":         &hub_ops,
+		"BIRK-OPS":        &birk_ops,
+	}
+	var err error
+	for i, md := range mdsources {
+		*md = mdqsources[*env][i]
+		err = (*md).Open((*md).Path)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		if *refreshmd {
+			(*md).Update()
+		}
+	}
+	// need non-birk, non-request.validate and non-IDPList SPs for testing ....
+	// look for them in the test_hub_ops feed as wayf:wayf attributes are not yet int the prod feed
+	var numberOfTestSPs int
+	testSPs, numberOfTestSPs, _ = hub_ops.MDQFilter("/*[not(starts-with(@entityID, 'https://birk.wayf.dk/birk.php'))]/*/wayf:wayf[not(wayf:IDPList!='') and wayf:redirect.validate='']/../..")
+	if numberOfTestSPs == 0 {
+		log.Fatal("No testSP candidates")
+	}
+	os.Exit(m.Run())
+}
 
 func stdoutstart() {
 	old = os.Stdout // keep backup of the real stdout
@@ -145,28 +176,6 @@ func stdoutend(t *testing.T, expected string) {
 	}
 }
 
-func TestMain(m *testing.M) {
-	flag.Parse()
-	log.Printf("hub: %q backend: %q birk: %q backend: %q\n", *hub, *hubbe, *birk, *birkbe)
-	mdsources := map[string]**lMDQ.MDQ{
-	    "WAYF-HUB-PUBLIC":      &wayf_hub_public,
-	    "HUB-OPS":              &hub_ops,
-	    "TEST-HUB-OPS":         &test_hub_ops,
-	    "BIRK-OPS":             &birk_ops,
-	}
-	var err error
-	for path, md := range mdsources {
-	    *md, err = lMDQ.Open(mdqsources[*env][path])
-	    if err != nil {
-	        log.Fatalln(err)
-	    }
-	}
-	// need non-birk, non-request.validate and non-IDPList SPs for testing ....
-	// look for them in the test_hub_ops feed as wayf:wayf attributes are not yet int the prod feed
-	testSPs, _ = test_hub_ops.MDQFilter("/*[not(starts-with(@entityID, 'https://birk.wayf.dk/birk.php'))]/*/wayf:wayf[not(wayf:IDPList!='') and wayf:redirect.validate='']/../..")
-	os.Exit(m.Run())
-}
-
 func Newtp(overwrite *Testparams) (tp *Testparams) {
 	tp = new(Testparams)
 	tp.Privatekeypw = os.Getenv("PW")
@@ -183,13 +192,13 @@ func Newtp(overwrite *Testparams) (tp *Testparams) {
 	tp.Hubidpmd, _ = wayf_hub_public.MDQ("https://wayf.wayf.dk")
 
 	wayfserver := "wayf.wayf.dk"
-/*
-	if tp.Env == "beta" {
-		wayfserver = "betawayf.wayf.dk"
-		tp.Hubspmd = newMD("https://betawayf.wayf.dk/module.php/saml/sp/metadata.php/betawayf.wayf.dk")
-		tp.Hubidpmd = newMD("https://betawayf.wayf.dk/saml2/idp/metadata.php")
-	}
-*/
+	/*
+		if tp.Env == "beta" {
+			wayfserver = "betawayf.wayf.dk"
+			tp.Hubspmd = newMD("https://betawayf.wayf.dk/module.php/saml/sp/metadata.php/betawayf.wayf.dk")
+			tp.Hubidpmd = newMD("https://betawayf.wayf.dk/saml2/idp/metadata.php")
+		}
+	*/
 	tp.Resolv = map[string]string{wayfserver: *hub, "birk.wayf.dk": *birk}
 	tp.Idpmd, _ = hub_ops.MDQ("https://this.is.not.a.valid.idp")
 	tp.Firstidpmd = tp.Hubidpmd
@@ -243,20 +252,20 @@ func Newtp(overwrite *Testparams) (tp *Testparams) {
 			tp.Privatekeypw = overwrite.Privatekeypw
 		}
 	}
-//	m := mapFields(tp)
-//    log.Println("Mapped fields: ", m)
+	//	m := mapFields(tp)
+	//    log.Println("Mapped fields: ", m)
 	return
 }
 
 func mapFields(x *Testparams) M {
-    o := make(M)
-    v := reflect.ValueOf(x).Elem()
-    t := v.Type()
-    for i := 0; i < v.NumField(); i++ {
-        f := t.FieldByIndex([]int{i})
-        o[f.Name] = v.FieldByIndex([]int{i}).Interface()
-    }
-    return o
+	o := make(M)
+	v := reflect.ValueOf(x).Elem()
+	t := v.Type()
+	for i := 0; i < v.NumField(); i++ {
+		f := t.FieldByIndex([]int{i})
+		o[f.Name] = v.FieldByIndex([]int{i}).Interface()
+	}
+	return o
 }
 
 func b(attrs map[string][]string) (ats *gosaml.Xp) {
@@ -290,18 +299,20 @@ func TestAttributeNameFormat(t *testing.T) {
 		ascountbasic = "count(//saml:Attribute[@NameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:basic'])"
 	)
 	stdoutstart()
-	// We need to get at the wayf:wayf elements - thus we got directly to the feed !!!
-    //	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
-	uri := testSPs.Query1(nil, "/*/*/*/wayf:wayf[wayf:AttributeNameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:uri']/../../@entityID")
-	urimd, _ := hub_ops.MDQ(uri)
-	basic := testSPs.Query1(nil, "/*/*/*/wayf:wayf[wayf:AttributeNameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:basic']/../../@entityID")
-	basicmd, _ := hub_ops.MDQ(basic)
-	both := testSPs.Query1(nil, "/*/*/*/wayf:wayf[wayf:AttributeNameFormat='']/../../@entityID")
-	bothmd, _ := hub_ops.MDQ(both)
+	attrnameformats := []string{"uri", "basic", "both"}
+	attrnameformatqueries := map[string]string{
+		"uri":   "/*/*/*/wayf:wayf[wayf:AttributeNameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:uri']/../../@entityID",
+		"basic": "/*/*/*/wayf:wayf[wayf:AttributeNameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:basic']/../../@entityID",
+		"both":  "/*/*/*/wayf:wayf[wayf:AttributeNameFormat='']/../../@entityID",
+	}
 
 	dorun := func(f testrun) {
-		sps := []*gosaml.Xp{urimd, basicmd, bothmd}
-		for _, md := range sps {
+		for _, attrname := range attrnameformats {
+			eID := testSPs.Query1(nil, attrnameformatqueries[attrname])
+			md, _ := hub_ops.MDQ(eID)
+			if md == nil {
+				log.Fatalln("No SP found for testing attributenameformat: ", attrname)
+			}
 			tp := f(nil, &Testparams{Spmd: md})
 			if tp != nil {
 				//samlresponse := Html2SAMLResponse(tp)
@@ -315,16 +326,16 @@ func TestAttributeNameFormat(t *testing.T) {
 	expected := ""
 	dorun(DoRunTestHub)
 	dorun(DoRunTestBirk)
-	if *dohub || *dobirk {
+	if *dohub {
 		expected += `false true false
 false false true
 true false false
 `
 	}
-	if *dokrib {
+	if *dokrib || *dobirk {
 		expected += `false true false
 false false true
-false false false
+false false true
 `
 	}
 	stdoutend(t, expected)
@@ -334,31 +345,31 @@ false false false
 func TestConsentDisabled(t *testing.T) {
 	stdoutstart()
 	// We need to get at the wayf:wayf elements - thus we got directly to the feed !!!
-//	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
+	//	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
 	expected := ""
 	// find an entity with content disabled, but no a birk entity as we know that using ssp does not understand the wayf namespace yet ...
 	entityID := testSPs.Query1(nil, "/*/*/*/wayf:wayf[wayf:consent.disable='1']/../../md:SPSSODescriptor/../@entityID")
-	if  entityID != "" {
-        entitymd, _ := hub_ops.MDQ(entityID)
+	if entityID != "" {
+		entitymd, _ := hub_ops.MDQ(entityID)
 
-        dorun := func(f testrun) {
-            tp := f(nil, &Testparams{Spmd: entitymd})
-            if tp != nil {
-                fmt.Printf("consent given %t\n", tp.ConsentGiven)
-            }
-        }
-        if *dohub {
-            dorun(DoRunTestHub)
-            expected += `consent given false
+		dorun := func(f testrun) {
+			tp := f(nil, &Testparams{Spmd: entitymd})
+			if tp != nil {
+				fmt.Printf("consent given %t\n", tp.ConsentGiven)
+			}
+		}
+		if *dohub {
+			dorun(DoRunTestHub)
+			expected += `consent given false
 `
-        }
-        if *dobirk {
-           dorun(DoRunTestBirk)
-           expected += `consent given true
+		}
+		if *dobirk {
+			dorun(DoRunTestBirk)
+			expected += `consent given true
 `
-        }
+		}
 	} else {
-	    expected += "no entity suited for test found"
+		expected += "no entity suited for test found"
 	}
 	stdoutend(t, expected)
 }
@@ -367,7 +378,7 @@ func TestConsentDisabled(t *testing.T) {
 func TestPersistentNameID(t *testing.T) {
 	stdoutstart()
 	// We need to get at the wayf:wayf elements - thus we got directly to the feed !!!
-//	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
+	//	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
 	expected := ""
 	entityID := testSPs.Query1(nil, "/*/*/md:SPSSODescriptor/md:NameIDFormat[.='urn:oasis:names:tc:SAML:2.0:nameid-format:persistent']/../../@entityID")
 	entitymd, _ := hub_ops.MDQ(entityID)
@@ -395,7 +406,7 @@ func TestPersistentNameID(t *testing.T) {
 func TestTransientNameID(t *testing.T) {
 	stdoutstart()
 	// We need to get at the wayf:wayf elements - thus we got directly to the feed !!!
-//	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
+	//	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
 	expected := ""
 	eID := testSPs.Query1(nil, "/*/*/md:SPSSODescriptor/md:NameIDFormat[.='urn:oasis:names:tc:SAML:2.0:nameid-format:transient']/../../@entityID")
 	entitymd, _ := hub_ops.MDQ(eID)
@@ -419,10 +430,10 @@ func TestTransientNameID(t *testing.T) {
 	}
 	dorun(DoRunTestBirk)
 	if tp != nil {
-	    reg := regexp.MustCompile("^https?://(.*)")
+		reg := regexp.MustCompile("^https?://(.*)")
 		birkEntityID := reg.ReplaceAllString(entityID, "https://birk.wayf.dk/birk.php/${1}-proxy")
 		if !reg.MatchString(birkEntityID) { // urn format
-		    birkEntityID = "urn:oid:1.3.6.1.4.1.39153:42:" + birkEntityID
+			birkEntityID = "urn:oid:1.3.6.1.4.1.39153:42:" + birkEntityID
 		}
 		expected += `urn:oasis:names:tc:SAML:2.0:nameid-format:transient true ` + entityID + ` ` + birkEntityID + "\n"
 	}
@@ -459,13 +470,8 @@ func TestUnspecifiedNameID(t *testing.T) {
 func TestFullAttributeset(t *testing.T) {
 	var expected string
 	stdoutstart()
-	hub := DoRunTestHub(nil, nil)
-	if hub == nil {
-		hub = DoRunTestBirk(nil, nil)
-	}
-	if hub != nil {
-		hub.Newresponse.AttributeCanonicalDump()
-		expected += `cn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+	// common res for hub and birk
+	expected += `cn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     Anton Banton Cantonsen
 eduPersonAssurance urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     2
@@ -504,7 +510,16 @@ schacYearOfBirth urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     1858
 sn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     Cantonsen
-urn:oid:0.9.2342.19200300.100.1.3 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+`
+	res := DoRunTestBirk(nil, nil)
+	if res != nil {
+		res.Newresponse.AttributeCanonicalDump()
+	}
+
+	res = DoRunTestHub(nil, nil)
+	if res != nil {
+		res.Newresponse.AttributeCanonicalDump()
+		expected += `urn:oid:0.9.2342.19200300.100.1.3 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     joe@example.com
 urn:oid:1.3.6.1.4.1.2428.90.1.4 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     123456789
@@ -545,9 +560,9 @@ urn:oid:2.5.4.42 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     Anton Banton <SamlRequest id="abc">abc</SamlRequest>
 `
 	}
-	krib := DoRunTestKrib(nil, nil)
-	if krib != nil {
-		krib.Newresponse.AttributeCanonicalDump()
+	res = DoRunTestKrib(nil, nil)
+	if res != nil {
+		res.Newresponse.AttributeCanonicalDump()
 		expected += `cn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     Anton Banton Cantonsen
 eduPersonAssurance urn:oasis:names:tc:SAML:2.0:attrname-format:basic
@@ -612,8 +627,6 @@ urn:oid:1.3.6.1.4.1.5923.1.1.1.6 urn:oasis:names:tc:SAML:2.0:attrname-format:bas
 		birk.Newresponse.AttributeCanonicalDump()
 		expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     joe@this.is.not.a.valid.idp
-urn:oid:1.3.6.1.4.1.5923.1.1.1.6 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    joe@this.is.not.a.valid.idp
 `
 	}
 	krib := DoRunTestKrib(nil, overwrite)
@@ -632,22 +645,22 @@ func TestFullEnctryptedAttributeset(t *testing.T) {
 	stdoutstart()
 	spmd, _ := hub_ops.MDQ("https://metadata.wayf.dk/PHPh")
 	overwrite := &Testparams{Encryptresponse: true, Spmd: spmd}
-	hub := DoRunTestHub(nil, overwrite)
-	if hub == nil {
-		hub = DoRunTestBirk(nil, overwrite)
-	}
-	if hub != nil {
-		hub.Newresponse.AttributeCanonicalDump()
+	res := DoRunTestHub(nil, overwrite)
+	if res != nil {
+		res.Newresponse.AttributeCanonicalDump()
 		expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     joe@this.is.not.a.valid.idp
 urn:oid:1.3.6.1.4.1.5923.1.1.1.6 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     joe@this.is.not.a.valid.idp
 `
 	}
-	krib := DoRunTestKrib(nil, overwrite)
-	if krib != nil {
-		krib.Newresponse.AttributeCanonicalDump()
-		expected += `urn:oid:1.3.6.1.4.1.5923.1.1.1.6 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+	res = DoRunTestKrib(nil, overwrite)
+	if res == nil {
+		res = DoRunTestBirk(nil, overwrite)
+	}
+	if res != nil {
+		res.Newresponse.AttributeCanonicalDump()
+		expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     joe@this.is.not.a.valid.idp
 `
 	}
@@ -852,7 +865,7 @@ func TestUnknownIDPError(t *testing.T) {
 	stdoutend(t, expected)
 }
 
-func TestSpeed(t *testing.T) {
+func xTestSpeed(t *testing.T) {
 	const gorutines = 50
 	const iterations = 50
 	spmd, _ := hub_ops.MDQ("https://metadata.wayf.dk/PHPh")
