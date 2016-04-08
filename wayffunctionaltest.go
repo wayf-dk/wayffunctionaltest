@@ -91,16 +91,16 @@ func (tp *Testparams) SSOCreateInitialRequest() {
 func (tp *Testparams) SSOSendRequest() {
 	tp.SSOSendRequest1()
 	if tp.Err != nil || tp.Resp.StatusCode == 500 {
-        if u, _ := tp.Resp.Location(); u != nil {
-            if strings.Contains(u.Path, "displayerror.php") {
-                tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
-                if tp.Logxml {
-                    log.Println("Displayerror:", string(tp.Responsebody))
-                }
-                return
-            }
-        }
-    }
+		if u, _ := tp.Resp.Location(); u != nil {
+			if strings.Contains(u.Path, "displayerror.php") {
+				tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
+				if tp.Logxml {
+					log.Println("Displayerror:", string(tp.Responsebody))
+				}
+				return
+			}
+		}
+	}
 	tp.SSOSendRequest2()
 }
 
