@@ -51,7 +51,8 @@ var (
 			"BIRK-OPS": &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_birk.mddb", Url: "https://phph.wayf.dk/md/birk-idp-public.xml", Hash: "f328b1e2b9edeb416403ac70601bc1306f74a836", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
 		},
 		"dev": {
-			"WAYF-HUB-PUBLIC": &lMDQ.MDQ{Silent: true, Path: "/tmp/test_hub.mddb", Url: "https://phph.wayf.dk/md/wayf-hub.xml", Hash: "f328b1e2b9edeb416403ac70601bc1306f74a836", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+			"WAYF-HUB-PUBLIC": &lMDQ.MDQ{Silent: true, Path: "/tmp/test_hub.mddb", Url: "https://test-phph.test.lan/test-md/wayf-metadata.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+			//"WAYF-HUB-PUBLIC": &lMDQ.MDQ{Silent: true, Path: "/tmp/test_hub.mddb", Url: "https://test-phph.test.lan/test-md/wayf-hub.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
 			"WAYF2-HUB-PUBLIC": &lMDQ.MDQ{Silent: true, Path: "/tmp/test_hub2.mddb", Url: "https://phph.wayf.dk/md/wayf-metadata.xml", Hash: "3c9a81a80e9032f888ba3cc7ac564364c38f283e", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
 			//"HUB-OPS":         &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_hub_ops.mddb", Url: "https://test-phph.test.lan/MDQ/HUB-OPS/entities/HUB-OPS.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
 			"HUB-OPS":  &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_hub_ops.mddb", Url: "https://phph.wayf.dk/md/HUB.xml", Hash: "f328b1e2b9edeb416403ac70601bc1306f74a836", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
@@ -344,7 +345,7 @@ func TestAttributeNameFormat(t *testing.T) {
 				requested := md.QueryNumber(nil, mdcount)
 				uricount := tp.Newresponse.QueryNumber(nil, ascounturi)
 				basiccount := tp.Newresponse.QueryNumber(nil, ascountbasic)
-				fmt.Printf("%t %t %t\n", basiccount > 1 && basiccount <= requested*2, uricount > 0 && uricount <= requested, basiccount > 0 && basiccount <= requested)
+				fmt.Printf("%t %t %t\n", basiccount == requested*2, uricount == requested, basiccount == requested)
 			}
 		}
 	}
@@ -354,7 +355,7 @@ func TestAttributeNameFormat(t *testing.T) {
 	if *dohub {
 		expected += `false true false
 false false true
-true false false
+false false true
 `
 	}
 	if *dokrib || *dobirk {
@@ -544,46 +545,6 @@ sn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
 	res = DoRunTestHub(nil, nil)
 	if res != nil {
 		res.Newresponse.AttributeCanonicalDump()
-		expected += `urn:oid:0.9.2342.19200300.100.1.3 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    joe@example.com
-urn:oid:1.3.6.1.4.1.2428.90.1.4 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    123456789
-urn:oid:1.3.6.1.4.1.25178.1.0.2.3 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    1858
-urn:oid:1.3.6.1.4.1.25178.1.2.10 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    urn:mace:terena.org:schac:homeOrganizationType:int:other
-urn:oid:1.3.6.1.4.1.25178.1.2.15 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    urn:mace:terena.org:schac:personalUniqueID:dk:CPR:2408586234
-urn:oid:1.3.6.1.4.1.25178.1.2.3 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    18580824
-urn:oid:1.3.6.1.4.1.25178.1.2.5 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    dk
-urn:oid:1.3.6.1.4.1.25178.1.2.9 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    this.is.not.a.valid.idp
-urn:oid:1.3.6.1.4.1.5923.1.1.1.10 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    {{.eptid}}
-urn:oid:1.3.6.1.4.1.5923.1.1.1.11 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    2
-urn:oid:1.3.6.1.4.1.5923.1.1.1.5 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    student
-urn:oid:1.3.6.1.4.1.5923.1.1.1.6 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    joe@this.is.not.a.valid.idp
-urn:oid:1.3.6.1.4.1.5923.1.1.1.7 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    https://example.com/course101
-urn:oid:1.3.6.1.4.1.5923.1.1.1.9 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    member@this.is.not.a.valid.idp
-    student@this.is.not.a.valid.idp
-urn:oid:2.16.840.1.113730.3.1.39 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    da
-urn:oid:2.5.4.10 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    Orphanage - home for the homeless
-urn:oid:2.5.4.3 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    Anton Banton Cantonsen
-urn:oid:2.5.4.4 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    Cantonsen
-urn:oid:2.5.4.42 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    Anton Banton <SamlRequest id="abc">abc</SamlRequest>
-`
 	}
 	res = DoRunTestKrib(nil, nil)
 	if res != nil {
@@ -642,8 +603,6 @@ func TestFullAttributesetSP2(t *testing.T) {
 	if hub != nil {
 		hub.Newresponse.AttributeCanonicalDump()
 		expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    joe@this.is.not.a.valid.idp
-urn:oid:1.3.6.1.4.1.5923.1.1.1.6 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     joe@this.is.not.a.valid.idp
 `
 	}
@@ -709,8 +668,6 @@ func TestFullEncryptedAttributeset1(t *testing.T) {
 	if res != nil {
 		res.Newresponse.AttributeCanonicalDump()
 		expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    joe@this.is.not.a.valid.idp
-urn:oid:1.3.6.1.4.1.5923.1.1.1.6 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     joe@this.is.not.a.valid.idp
 `
 	}
