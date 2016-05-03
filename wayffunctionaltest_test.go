@@ -50,6 +50,22 @@ var (
 			"HUB-OPS":  &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_hub_ops.mddb", Url: "https://phph.wayf.dk/md/HUB.xml", Hash: "f328b1e2b9edeb416403ac70601bc1306f74a836", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
 			"BIRK-OPS": &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_birk.mddb", Url: "https://phph.wayf.dk/md/birk-idp-public.xml", Hash: "f328b1e2b9edeb416403ac70601bc1306f74a836", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
 		},
+		"dev": {
+			"WAYF-HUB-PUBLIC": &lMDQ.MDQ{Silent: true, Path: "/tmp/test_hub.mddb", Url: "https://phph.wayf.dk/md/wayf-hub.xml", Hash: "f328b1e2b9edeb416403ac70601bc1306f74a836", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+			"WAYF2-HUB-PUBLIC": &lMDQ.MDQ{Silent: true, Path: "/tmp/test_hub2.mddb", Url: "https://phph.wayf.dk/md/wayf-metadata.xml", Hash: "3c9a81a80e9032f888ba3cc7ac564364c38f283e", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+			//"HUB-OPS":         &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_hub_ops.mddb", Url: "https://test-phph.test.lan/MDQ/HUB-OPS/entities/HUB-OPS.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+			"HUB-OPS":  &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_hub_ops.mddb", Url: "https://phph.wayf.dk/md/HUB.xml", Hash: "f328b1e2b9edeb416403ac70601bc1306f74a836", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+			"BIRK-OPS": &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_birk.mddb", Url: "https://phph.wayf.dk/md/birk-idp-public.xml", Hash: "f328b1e2b9edeb416403ac70601bc1306f74a836", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+		},
+/*
+		"dev": {
+			"WAYF-HUB-PUBLIC": &lMDQ.MDQ{Silent: true, Path: "/tmp/test_hub.mddb", Url: "https://test-phph.test.lan/test-md/WAYF-HUB-PUBLIC.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+			"WAYF2-HUB-PUBLIC": &lMDQ.MDQ{Silent: true, Path: "/tmp/test_hub2.mddb", Url: "https://test-phph.test.lan/md/WAYF2-HUB-PUBLIC.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+			//"HUB-OPS":         &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_hub_ops.mddb", Url: "https://test-phph.test.lan/MDQ/HUB-OPS/entities/HUB-OPS.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+			"HUB-OPS":  &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_hub_ops.mddb", Url: "https://phph.wayf.dk/md/HUB.xml", Hash: "f328b1e2b9edeb416403ac70601bc1306f74a836", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+			"BIRK-OPS": &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_birk.mddb", Url: "https://phph.wayf.dk/md/birk-idp-public.xml", Hash: "f328b1e2b9edeb416403ac70601bc1306f74a836", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+		},
+*/
 		"hybrid": {
 			"WAYF-HUB-PUBLIC": &lMDQ.MDQ{Silent: true, Path: "/tmp/test_hub.mddb", Url: "https://test-phph.test.lan/MDQ/HUB-OPS/entities/HUB-OPS.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
 			"HUB-OPS":         &lMDQ.MDQ{Silent: true, Path: "/tmp/test_hub_ops.mddb", Url: "https://phph.wayf.dk/md/wayf-hub.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
@@ -57,7 +73,7 @@ var (
 		},
 	}
 
-	wayf_hub_public, hub_ops, birk_ops *lMDQ.MDQ
+	wayf_hub_public, wayf2_hub_public, hub_ops, birk_ops *lMDQ.MDQ
 
 	avals = map[string][]string{
 		"eduPersonPrincipalName": {"joe@this.is.not.a.valid.idp"},
@@ -104,8 +120,8 @@ var (
 			"pnameid": "WAYF-DK-c52a92a5467ae336a2be77cd06719c645e72dfd2",
 		},
 		"dev": {
-			"eptid":   "WAYF-DK-1d5bebf8f3cccb47e912cf0574af7484e97a2992",
-			"pnameid": "WAYF-DK-1d5bebf8f3cccb47e912cf0574af7484e97a2992",
+			"eptid":   "WAYF-DK-a7379f69e957371dc49350a27b704093c0b813f1",
+			"pnameid": "WAYF-DK-a7379f69e957371dc49350a27b704093c0b813f1",
 		},
 		"hybrid": {
 			"eptid":   "WAYF-DK-a7379f69e957371dc49350a27b704093c0b813f1",
@@ -123,6 +139,7 @@ func TestMain(m *testing.M) {
 	flag.Parse()
 	log.Printf("hub: %q backend: %q birk: %q backend: %q\n", *hub, *hubbe, *birk, *birkbe)
 	mdsources := map[string]**lMDQ.MDQ{
+//		"WAYF2-HUB-PUBLIC": &wayf2_hub_public,
 		"WAYF-HUB-PUBLIC": &wayf_hub_public,
 		"HUB-OPS":         &hub_ops,
 		"BIRK-OPS":        &birk_ops,
@@ -141,7 +158,7 @@ func TestMain(m *testing.M) {
 	// need non-birk, non-request.validate and non-IDPList SPs for testing ....
 	// look for them in the test_hub_ops feed as wayf:wayf attributes are not yet int the prod feed
 	var numberOfTestSPs int
-	testSPs, numberOfTestSPs, _ = hub_ops.MDQFilter("/*[not(starts-with(@entityID, 'https://birk.wayf.dk/birk.php'))]/*/wayf:wayf[not(wayf:IDPList!='') and wayf:redirect.validate='']/../..")
+	testSPs, numberOfTestSPs, _ = hub_ops.MDQFilter("/*[not(starts-with(@entityID, 'https://birk.wayf.dk/birk.php'))]/*/wayf:wayf[not(wayf:IDPList!='') and wayf:redirect.validate='']/../../md:SPSSODescriptor/..")
 	if numberOfTestSPs == 0 {
 		log.Fatal("No testSP candidates")
 	}
@@ -239,6 +256,13 @@ func Newtp(overwrite *Testparams) (tp *Testparams) {
 	}
 	tp.Privatekey = string(pk)
 	if overwrite != nil {
+		if overwrite.Hubspmd != nil {
+			tp.Hubspmd = overwrite.Hubspmd
+		}
+		if overwrite.Hubidpmd != nil {
+			tp.Hubidpmd = overwrite.Hubidpmd
+	        tp.Firstidpmd = tp.Hubidpmd
+		}
 		if overwrite.Encryptresponse {
 			tp.Encryptresponse = true
 		}
@@ -252,6 +276,7 @@ func Newtp(overwrite *Testparams) (tp *Testparams) {
 			tp.Privatekeypw = overwrite.Privatekeypw
 		}
 	}
+
 	//	m := mapFields(tp)
 	//    log.Println("Mapped fields: ", m)
 	return
@@ -319,7 +344,7 @@ func TestAttributeNameFormat(t *testing.T) {
 				requested := md.QueryNumber(nil, mdcount)
 				uricount := tp.Newresponse.QueryNumber(nil, ascounturi)
 				basiccount := tp.Newresponse.QueryNumber(nil, ascountbasic)
-				fmt.Printf("%t %t %t\n", basiccount == requested*2, uricount == requested, basiccount == requested)
+				fmt.Printf("%t %t %t\n", basiccount > 1 && basiccount <= requested*2, uricount > 0 && uricount <= requested, basiccount > 0 && basiccount <= requested)
 			}
 		}
 	}
@@ -536,7 +561,7 @@ urn:oid:1.3.6.1.4.1.25178.1.2.5 urn:oasis:names:tc:SAML:2.0:attrname-format:basi
 urn:oid:1.3.6.1.4.1.25178.1.2.9 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     this.is.not.a.valid.idp
 urn:oid:1.3.6.1.4.1.5923.1.1.1.10 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    WAYF-DK-c52a92a5467ae336a2be77cd06719c645e72dfd2
+    {{.eptid}}
 urn:oid:1.3.6.1.4.1.5923.1.1.1.11 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     2
 urn:oid:1.3.6.1.4.1.5923.1.1.1.5 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
@@ -639,8 +664,43 @@ urn:oid:1.3.6.1.4.1.5923.1.1.1.6 urn:oasis:names:tc:SAML:2.0:attrname-format:bas
 	stdoutend(t, expected)
 }
 
+// TestFullAttributesetSP2 test that the full attributeset is delivered to the PHPH service
+/*
+func TestFullAttributesetSP3(t *testing.T) {
+	var expected string
+	stdoutstart()
+	spmd, _ := hub_ops.MDQ("https://metadata.wayf.dk/PHPh")
+	hub2idpmd, _ := wayf2_hub_public.MDQ("https://wayf.wayf.dk")
+	overwrite := &Testparams{Spmd: spmd, Hubidpmd: hub2idpmd}
+	hub := DoRunTestHub(nil, overwrite)
+	if hub != nil {
+		hub.Newresponse.AttributeCanonicalDump()
+		expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    joe@this.is.not.a.valid.idp
+urn:oid:1.3.6.1.4.1.5923.1.1.1.6 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    joe@this.is.not.a.valid.idp
+`
+	}
+	birk := DoRunTestBirk(nil, overwrite)
+	if birk != nil {
+		birk.Newresponse.AttributeCanonicalDump()
+		expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    joe@this.is.not.a.valid.idp
+`
+	}
+	krib := DoRunTestKrib(nil, overwrite)
+	if krib != nil {
+		krib.Newresponse.AttributeCanonicalDump()
+		expected += `urn:oid:1.3.6.1.4.1.5923.1.1.1.6 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    joe@this.is.not.a.valid.idp
+`
+	}
+	stdoutend(t, expected)
+}
+*/
+
 // TestFullAttributeset3 test that the full attributeset is delivered to the default test sp - the assertion is encrypted
-func TestFullEnctryptedAttributeset(t *testing.T) {
+func TestFullEncryptedAttributeset1(t *testing.T) {
 	var expected string
 	stdoutstart()
 	spmd, _ := hub_ops.MDQ("https://metadata.wayf.dk/PHPh")
@@ -666,6 +726,37 @@ urn:oid:1.3.6.1.4.1.5923.1.1.1.6 urn:oasis:names:tc:SAML:2.0:attrname-format:bas
 	}
 	stdoutend(t, expected)
 }
+
+/*
+func TestFullEncryptedAttributeset2(t *testing.T) {
+	var expected string
+	stdoutstart()
+	spmd, _ := hub_ops.MDQ("https://metadata.wayf.dk/PHPh")
+	hub2spmd, _ := wayf2_hub_public.MDQ("https://wayf.wayf.dk")
+	overwrite := &Testparams{Encryptresponse: true, Spmd: spmd, Hubspmd: hub2spmd}
+
+	res := DoRunTestHub(nil, overwrite)
+	if res != nil {
+		res.Newresponse.AttributeCanonicalDump()
+		expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    joe@this.is.not.a.valid.idp
+urn:oid:1.3.6.1.4.1.5923.1.1.1.6 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    joe@this.is.not.a.valid.idp
+`
+	}
+	res = DoRunTestKrib(nil, overwrite)
+	if res == nil {
+		res = DoRunTestBirk(nil, overwrite)
+	}
+	if res != nil {
+		res.Newresponse.AttributeCanonicalDump()
+		expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    joe@this.is.not.a.valid.idp
+`
+	}
+	stdoutend(t, expected)
+}
+*/
 
 // TestSignErrorModifiedContent tests if the hub and BIRK reacts on errors in the signing of responses and assertions
 func TestSignErrorModifiedContent(t *testing.T) {

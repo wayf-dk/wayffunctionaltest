@@ -199,7 +199,7 @@ func (tp *Testparams) SSOSendRequest2() {
 
 		_, publickey, _ := gosaml.PublicKeyInfo(tp.Hubspmd.NodeGetContent(certs[0]))
 
-		if tp.Env == "dev" {
+		if tp.Env == "xdev" {
 			cert, err := ioutil.ReadFile(*testcertpath)
 			pk, err := x509.ParseCertificate(cert)
 			if err != nil {
@@ -258,6 +258,9 @@ func (tp *Testparams) SSOSendResponse() {
 		}
 	}
 	tp.Newresponse = gosaml.Html2SAMLResponse(tp.Responsebody)
+
+
+
 }
 
 // SendRequest sends a http request - GET or POST using the supplied url, server, method and cookies
@@ -405,6 +408,12 @@ func DoRunTestHub(m modsset, overwrite *Testparams) (tp *Testparams) {
 	if tp.Logxml {
 		log.Println("idp response", tp.Newresponse.Pp())
 	}
+
+    err := ValidateSignature(tp.Hubidpmd, tp.Newresponse)
+    if err != nil {
+        fmt.Printf("signature errors: %s\n", err)
+    }
+
 	return
 }
 
@@ -526,6 +535,52 @@ func Html2SAMLResponse(tp *Testparams) (samlresponse *gosaml.Xp) {
 		fmt.Printf("SignatureVerificationError %s", err)
 	}
 	return
+}
+
+func ValidateSignature(md, xp *gosaml.Xp) (err error) {
+
+    //no ds:Object in signatures
+    certificates := md.Query(nil, gosaml.IdpCertQuery)
+    if len(certificates) == 0 {
+        err = errors.New("no certificates found in metadata")
+        return
+    }
+    signatures := xp.Query(nil, "(/samlp:Response[ds:Signature] | /samlp:Response/saml:Assertion[ds:Signature])")
+
+    if len(signatures) == 0 {
+        err = errors.New("Neither the assertion nor the response was signed.")
+        return
+    }
+    verified := 0
+    signerrors := []error{}
+    for _, certificate := range certificates {
+        var key *rsa.PublicKey
+        _, key, err = gosaml.PublicKeyInfo(md.NodeGetContent(certificate))
+
+        if err != nil {
+            return
+       }
+
+        for _, signature := range signatures {
+            signerror := xp.VerifySignature(signature, key)
+            if signerror != nil {
+                signerrors = append(signerrors, signerror)
+            } else {
+                verified++
+            }
+        }
+    }
+    if verified == 0 || verified != len(signatures) {
+        errorstring := ""
+        delim := ""
+        for _, e := range signerrors {
+            errorstring += e.Error() + delim
+            delim = ", "
+        }
+        err = fmt.Errorf("unable to validate signature: %s", errorstring)
+        return
+    }
+    return
 }
 
 func xxx(really bool) {
