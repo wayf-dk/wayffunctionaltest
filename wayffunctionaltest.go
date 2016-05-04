@@ -546,9 +546,10 @@ func ValidateSignature(md, xp *gosaml.Xp) (err error) {
         return
     }
     signatures := xp.Query(nil, "(/samlp:Response[ds:Signature] | /samlp:Response/saml:Assertion[ds:Signature])")
+    destination := xp.Query1(nil, "/samlp:Response/@Destination")
 
     if len(signatures) == 0 {
-        err = errors.New("Neither the assertion nor the response was signed.")
+        err = fmt.Errorf("%s neither the assertion nor the response was signed", destination)
         return
     }
     verified := 0
@@ -577,7 +578,7 @@ func ValidateSignature(md, xp *gosaml.Xp) (err error) {
             errorstring += e.Error() + delim
             delim = ", "
         }
-        err = fmt.Errorf("unable to validate signature: %s", errorstring)
+        err = fmt.Errorf("%s unable to validate signature: %s", destination, errorstring)
         return
     }
     return
