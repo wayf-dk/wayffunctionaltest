@@ -45,8 +45,8 @@ const (
 var (
 	mdqsources = map[string]map[string]*lMDQ.MDQ{
 		"prod": {
-//			"WAYF-HUB-PUBLIC": &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_hub.mddb", Url: "https://metadata.wayf.dk/wayf-metadata.xml", Hash: "3c9a81a80e9032f888ba3cc7ac564364c38f283e", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
-			"WAYF-HUB-PUBLIC": &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_hub.mddb", Url: "https://phph.wayf.dk/md/wayf-hub.xml", Hash: "f328b1e2b9edeb416403ac70601bc1306f74a836", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+			"WAYF-HUB-PUBLIC": &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_hub.mddb", Url: "https://metadata.wayf.dk/wayf-metadata.xml", Hash: "3c9a81a80e9032f888ba3cc7ac564364c38f283e", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+//			"WAYF-HUB-PUBLIC": &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_hub.mddb", Url: "https://phph.wayf.dk/md/wayf-hub.xml", Hash: "f328b1e2b9edeb416403ac70601bc1306f74a836", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
 			"HUB-OPS":  &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_hub_ops.mddb", Url: "https://phph.wayf.dk/md/HUB.xml", Hash: "3c9a81a80e9032f888ba3cc7ac564364c38f283e", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
 			"BIRK-OPS": &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_birk.mddb", Url: "https://phph.wayf.dk/md/birk-idp-public.xml", Hash: "3c9a81a80e9032f888ba3cc7ac564364c38f283e", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
 		},
@@ -153,13 +153,17 @@ func TestMain(m *testing.M) {
 			log.Fatalln(err)
 		}
 		if *refreshmd {
-			(*md).Update()
+			err = (*md).Update()
+            if err != nil {
+                log.Fatalln(err)
+            }
 		}
 	}
 	// need non-birk, non-request.validate and non-IDPList SPs for testing ....
 	// look for them in the test_hub_ops feed as wayf:wayf attributes are not yet int the prod feed
 	var numberOfTestSPs int
-	testSPs, numberOfTestSPs, _ = hub_ops.MDQFilter("/*[not(starts-with(@entityID, 'https://birk.wayf.dk/birk.php'))]/*/wayf:wayf[not(wayf:IDPList!='') and wayf:redirect.validate='']/../../md:SPSSODescriptor/..")
+//	testSPs, numberOfTestSPs, _ = hub_ops.MDQFilter("/*[not(starts-with(@entityID, 'https://birk.wayf.dk/birk.php'))]/*/wayf:wayf[not(wayf:IDPList!='') and wayf:redirect.validate='']/../../md:SPSSODescriptor/..")
+	testSPs, numberOfTestSPs, _ = hub_ops.MDQFilter("/*[not(starts-with(@entityID, 'https://birk.wayf.dk/birk.php'))]/*/wayf:wayf[not(wayf:IDPList!='')]/../../md:SPSSODescriptor/..")
 	if numberOfTestSPs == 0 {
 		log.Fatal("No testSP candidates")
 	}
@@ -367,6 +371,28 @@ false false true
 	stdoutend(t, expected)
 }
 
+// TestMultipleSPs tests just test a lot of SPs - if any fails signature validation it fails
+func xTestMultipleSPs(t *testing.T) {
+	//stdoutstart()
+
+	spquery := "/*/*/@entityID"
+
+	dorun := func(f testrun) {
+		eIDs := testSPs.Query(nil, spquery)
+
+		for _, eID := range eIDs {
+			md, _ := hub_ops.MDQ(testSPs.NodeGetContent(eID))
+			if md == nil {
+				log.Fatalln("No SP found for testing multiple SPs: ", eID)
+			}
+		    f(nil, &Testparams{Spmd: md})
+		}
+	}
+	dorun(DoRunTestHub)
+	//expected := ""
+	//stdoutend(t, expected)
+}
+
 // TestConsentDisabled tests that a SP with consent.disabled set actually bypasses the consent form
 func TestConsentDisabled(t *testing.T) {
 	stdoutstart()
@@ -406,8 +432,11 @@ func TestPersistentNameID(t *testing.T) {
 	// We need to get at the wayf:wayf elements - thus we got directly to the feed !!!
 	//	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
 	expected := ""
-	entityID := testSPs.Query1(nil, "/*/*/md:SPSSODescriptor/md:NameIDFormat[.='urn:oasis:names:tc:SAML:2.0:nameid-format:persistent']/../../@entityID")
+	entityID := testSPs.Query1(nil, "/*/*/md:SPSSODescriptor/md:NameIDFormat[.='urn:oasis:names:tc:SAML:2.0:nameid-format:persistent']/../md:AttributeConsumingService/md:RequestedAttribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10' or @Name='eduPersonTargetedID']/../../../@entityID")
 	entitymd, _ := hub_ops.MDQ(entityID)
+    if entitymd == nil {
+        log.Fatalln("no SP found for testing TestPersistentNameID")
+    }
 
 	dorun := func(f testrun) {
 		tp := f(nil, &Testparams{Spmd: entitymd})
