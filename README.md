@@ -18,3 +18,4 @@ Required packages on Ubuntu 14.04 LTS
 5. cd src
 6. git clone https://github.com/wayf-dk/wayffunctionaltest.git
 7. glide install
+8. go test -c -o ../../wayffunctionaltest.test
