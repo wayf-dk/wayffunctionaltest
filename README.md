@@ -11,10 +11,10 @@ Required packages on Ubuntu 14.04 LTS
 - libxml2-dev
 
 # Simple install guide
-mkdir -p wft/src
-cd wft
-export GOPATH=$PWD
-export GOBIN=$PWD/bin
-cd src
-git clone https://github.com/wayf-dk/wayffunctionaltest.git
-glide install
+1. mkdir -p wft/src
+2. cd wft
+3. export GOPATH=$PWD
+4. export GOBIN=$PWD/bin
+5. cd src
+6. git clone https://github.com/wayf-dk/wayffunctionaltest.git
+7. glide install
