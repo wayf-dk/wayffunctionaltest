@@ -39,7 +39,7 @@ type (
 )
 
 const (
-	lMDQ_METADATA_SCHEMA_PATH = "/home/mz/src/github.com/wayf-dk/gosaml/schemas/saml-schema-metadata-2.0.xsd"
+	lMDQ_METADATA_SCHEMA_PATH = "vendor/github.com/wayf-dk/gosaml/schemas/saml-schema-protocol-2.0.xsd"
 )
 
 var (

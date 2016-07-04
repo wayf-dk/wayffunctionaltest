@@ -30,7 +30,7 @@ import (
 )
 
 const (
-	samlSchema = "/home/mz/src/github.com/wayf-dk/gosaml/schemas/saml-schema-protocol-2.0.xsd"
+	samlSchema = "vendor/github.com/wayf-dk/gosaml/schemas/saml-schema-protocol-2.0.xsd"
 )
 
 var (
