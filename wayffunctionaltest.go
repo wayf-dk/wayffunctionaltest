@@ -16,7 +16,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"github.com/wayf-dk/gosaml"
 	"io"
 	"io/ioutil"
 	"log"
@@ -27,10 +26,14 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"github.com/lestrrat/go-libxml2/types"
+	"github.com/wayf-dk/goxml"
+	"github.com/wayf-dk/gosaml"
+  . "github.com/y0ssar1an/q"
 )
 
 const (
-	samlSchema = "/home/mz/src/github.com/wayf-dk/gosaml/schemas/saml-schema-protocol-2.0.xsd"
+	samlSchema = "/home/mz/src/github.com/wayf-dk/goxml/schemas/saml-schema-protocol-2.0.xsd"
 )
 
 var (
@@ -45,15 +48,15 @@ type (
 	// 2ndly call SSOSendRequest - the result is a SAMLResponse which again can be modified
 	// 3rdly call SSOSendResponse - and analyze the final resulting SAMLResponse
 	Testparams struct {
-		Spmd, Idpmd, Hubidpmd, Hubspmd, Birkmd, Firstidpmd *gosaml.Xp
+		Spmd, Idpmd, Hubidpmd, Hubspmd, Birkmd, Firstidpmd *goxml.Xp
 		Cookiejar                                          map[string]map[string]*http.Cookie
 		IdpentityID                                        string
 		DSIdpentityID                                      string
 		Usescope                                           bool
 		Usedoubleproxy                                     bool
 		Resolv                                             map[string]string
-		Initialrequest                                     *gosaml.Xp
-		Newresponse                                        *gosaml.Xp
+		Initialrequest                                     *goxml.Xp
+		Newresponse                                        *goxml.Xp
 		Resp                                               *http.Response
 		Responsebody                                       []byte
 		Err                                                error
@@ -62,7 +65,7 @@ type (
 		Privatekeypw                                       string
 		Certificate                                        string
 		Hashalgorithm                                      string
-		Attributestmt                                      *gosaml.Xp
+		Attributestmt                                      *goxml.Xp
 		Hub                                                bool
 		Krib                                               bool
 		Birk                                               bool
@@ -109,7 +112,7 @@ func (tp *Testparams) SSOSendRequest1() {
 
 	if tp.Logxml {
 		log.Println(tp)
-		log.Println("initialrequest:", tp.Initialrequest.Pp())
+		log.Println("initialrequest:", tp.Initialrequest.Doc.Dump(true))
 	}
 	u, _ := gosaml.SAMLRequest2Url(tp.Initialrequest, "", "", "")
 
@@ -144,8 +147,8 @@ func (tp *Testparams) SSOSendRequest2() {
 		if tp.Logxml {
 			query := u.Query()
 			req, _ := base64.StdEncoding.DecodeString(query["SAMLRequest"][0])
-			authnrequest := gosaml.NewXp(gosaml.Inflate(req))
-			log.Println("birkrequest", authnrequest.Pp())
+			authnrequest := goxml.NewXp(string(gosaml.Inflate(req)))
+			log.Println("birkrequest", authnrequest.Doc.Dump(true))
 		}
 
 		tp.Resp, tp.Responsebody, _ = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
@@ -168,26 +171,27 @@ func (tp *Testparams) SSOSendRequest2() {
 	// get the SAMLRequest
 	query := u.Query()
 	req, _ := base64.StdEncoding.DecodeString(query["SAMLRequest"][0])
-	authnrequest := gosaml.NewXp(gosaml.Inflate(req))
+	authnrequest := goxml.NewXp(string(gosaml.Inflate(req)))
 
 	if tp.Logxml {
-		log.Println("idprequest", authnrequest.Pp())
+		log.Println("idprequest", authnrequest.Doc.Dump(true))
 	}
 
 	// create a response
 	tp.Newresponse = gosaml.NewResponse(gosaml.IdAndTiming{time.Now(), 4 * time.Minute, 4 * time.Hour, "", ""}, tp.Idpmd, tp.Hubspmd, authnrequest, tp.Attributestmt)
 
-	if tp.Logxml {
-		log.Println("response", tp.Newresponse.Pp())
-	}
-
 	// and sign it
 	assertion := tp.Newresponse.Query(nil, "saml:Assertion[1]")[0]
 
 	// use cert to calculate key name
-	err := tp.Newresponse.Sign(assertion, tp.Privatekey, tp.Privatekeypw, tp.Certificate, tp.Hashalgorithm)
+	err := tp.Newresponse.Sign(assertion.(types.Element), tp.Privatekey, tp.Privatekeypw, tp.Certificate, tp.Hashalgorithm)
 	if err != nil {
+	    log.Println("Error from sign ..", tp.Privatekey, tp.Privatekeypw);
 		log.Fatal(err)
+	}
+
+	if tp.Logxml {
+		log.Println("response", tp.Newresponse.Doc.Dump(true))
 	}
 
 	if tp.Encryptresponse {
@@ -197,7 +201,7 @@ func (tp *Testparams) SSOSendRequest2() {
 			fmt.Errorf("Could not find encryption cert for: %s", tp.Hubspmd.Query1(nil, "/@entityID"))
 		}
 
-		_, publickey, _ := gosaml.PublicKeyInfo(tp.Hubspmd.NodeGetContent(certs[0]))
+		_, publickey, _ := gosaml.PublicKeyInfo(certs[0].NodeValue())
 
 		if tp.Env == "xdev" {
 			cert, err := ioutil.ReadFile(*testcertpath)
@@ -208,8 +212,13 @@ func (tp *Testparams) SSOSendRequest2() {
 			publickey = pk.PublicKey.(*rsa.PublicKey)
 		}
 
-		tp.Newresponse.Encrypt(assertion, publickey)
+       	ea := goxml.NewXp(`<saml:EncryptedAssertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"></saml:EncryptedAssertion>`)
+		tp.Newresponse.Encrypt(assertion.(types.Element), publickey, ea)
 		tp.Encryptresponse = false // for now only possible for idp -> hub
+
+        if tp.Logxml {
+            log.Println("response", tp.Newresponse.Doc.Dump(true))
+        }
 	}
 
 	return
@@ -221,7 +230,7 @@ func (tp *Testparams) SSOSendRequest2() {
 func (tp *Testparams) SSOSendResponse() {
 	acs := tp.Newresponse.Query1(nil, "@Destination")
 	data := url.Values{}
-	data.Set("SAMLResponse", base64.StdEncoding.EncodeToString([]byte(tp.Newresponse.X2s())))
+	data.Set("SAMLResponse", base64.StdEncoding.EncodeToString([]byte(tp.Newresponse.Doc.Dump(false))))
 
 	u, _ := url.Parse(acs)
 	tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "POST", data.Encode(), tp.Cookiejar)
@@ -229,7 +238,7 @@ func (tp *Testparams) SSOSendResponse() {
 	if tp.Resp.StatusCode == 500 {
 		return
 	}
-
+    Q(string(tp.Responsebody), tp.Resp.Header)
 	if u, _ = tp.Resp.Location(); u != nil {
 		if strings.Contains(u.Path, "displayerror.php") {
 			tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
@@ -245,22 +254,21 @@ func (tp *Testparams) SSOSendResponse() {
 			tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
 			u, _ = tp.Resp.Location()
 		}
-
-		// betawayf test system warning - u is only != nil in the beta env - otherwise the answer from getconsent is a POST
-		if u != nil && strings.Contains(u.Path, "showwarning.php") {
-			u.RawQuery = u.RawQuery + "&yes=Go+to+test-system"
-			tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
-			u, _ = tp.Resp.Location()
-			if u != nil && strings.Contains(u.Path, "displayerror.php") { // from betawayf the errors are sent after showwarning.php
-				tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
-				return
-			}
-		}
 	}
+
 	tp.Newresponse = gosaml.Html2SAMLResponse(tp.Responsebody)
-
-
-
+	if tp.Newresponse.Query1(nil, "/samlp:Response") == "" { // is it non-displayerror.php error find out which
+        if tp.Logxml {
+            log.Println("response", string(tp.Responsebody))
+        }
+	    tp.Resp.StatusCode = 500
+	    tp.Responsebody = []byte(`<html><body><a id="errormsg" href="http://www.example.com">unknown error</a></body></html>`) // fake an error from displayerror.php
+		return
+	} else {
+        if tp.Logxml {
+            log.Println("response", tp.Newresponse.Doc.Dump(true))
+        }
+	}
 }
 
 // SendRequest sends a http request - GET or POST using the supplied url, server, method and cookies
@@ -302,9 +310,11 @@ func (tp *Testparams) sendRequest(url *url.URL, server, method, body string, coo
 	}
 
 	req.Header.Add("Host", host)
+	Q(req)
 
 	resp, err = client.Do(req)
 	if err != nil && !strings.HasSuffix(err.Error(), "redirect-not-allowed") {
+	    Q(err, resp)
 		// we need to do the redirect ourselves so a self inflicted redirect "error" is not an error
 		debug.PrintStack()
 		log.Fatalln("client.do", err)
@@ -332,11 +342,11 @@ func (tp *Testparams) sendRequest(url *url.URL, server, method, body string, coo
 
 	// We didn't get a Location: header - we are POST'ing a SAMLResponse
 	if loc == "" {
-		response := gosaml.NewHtmlXp(responsebody)
+		response := goxml.NewHtmlXp(string(responsebody))
 		samlbase64 := response.Query1(nil, `//input[@name="SAMLResponse"]/@value`)
 		if samlbase64 != "" {
 			samlxml, _ := base64.StdEncoding.DecodeString(samlbase64)
-			samlresponse := gosaml.NewXp(samlxml)
+			samlresponse := goxml.NewXp(string(samlxml))
 			u, _ := url.Parse(samlresponse.Query1(nil, "@Destination"))
 			loc = u.Host + u.Path
 		}
@@ -355,20 +365,23 @@ func (tp *Testparams) sendRequest(url *url.URL, server, method, body string, coo
 //     If the value is "" the nodes are unlinked
 //     if the value starts with "+ " the the node content is prefixed with the rest of the value
 //     Otherwise the node content is replaced with the value
-func ApplyMods(xp *gosaml.Xp, m mods) {
+func ApplyMods(xp *goxml.Xp, m mods) {
 	//log.Printf("%+v\n", m)
 	//log.Println(xp.X2s())
 	for _, change := range m {
-		if change.value == "" {
+	    if change.function != nil {
+	        change.function(xp)
+	    } else if change.value == "" {
 			//log.Printf("changeval: '%s'\n", change.value)
 			for _, element := range xp.Query(nil, change.path) {
 				//log.Printf("unlink: %s\n", change.path)
-				xp.UnlinkNode(element)
+				parent, _ := element.ParentNode();
+				parent.RemoveChild(element)
 			}
 		} else if strings.HasPrefix(change.value, "+ ") {
 			for _, element := range xp.Query(nil, change.path) {
-				value := xp.NodeGetContent(element)
-				xp.NodeSetContent(element, strings.Fields(change.value)[1]+value)
+				value := element.NodeValue()
+				element.SetNodeValue(strings.Fields(change.value)[1]+value)
 			}
 		} else {
 			xp.QueryDashP(nil, change.path, change.value, nil)
@@ -394,19 +407,16 @@ func DoRunTestHub(m modsset, overwrite *Testparams) (tp *Testparams) {
 
 	tp.SSOSendRequest()
 	if tp.Resp.StatusCode == 500 {
-		response := gosaml.NewHtmlXp(tp.Responsebody)
+		response := goxml.NewHtmlXp(string(tp.Responsebody))
 		fmt.Println(strings.Trim(response.Query1(nil, `//a[@id="errormsg"]/text()`), "\n "))
 		return
 	}
 	ApplyMods(tp.Newresponse, m["responsemods"])
 	tp.SSOSendResponse()
 	if tp.Resp.StatusCode == 500 {
-		response := gosaml.NewHtmlXp(tp.Responsebody)
+		response := goxml.NewHtmlXp(string(tp.Responsebody))
 		fmt.Println(strings.Trim(response.Query1(nil, `//a[@id="errormsg"]/text()`), "\n "))
 		return
-	}
-	if tp.Logxml {
-		log.Println("idp response", tp.Newresponse.Pp())
 	}
 
     err := ValidateSignature(tp.Hubidpmd, tp.Newresponse)
@@ -451,7 +461,8 @@ func DoRunTestBirk(m modsset, overwrite *Testparams) (tp *Testparams) {
 	}
 	tp.SSOSendResponse()
 	if tp.Resp.StatusCode == 500 {
-		fmt.Println(strings.SplitN(string(tp.Responsebody), " ", 2)[1])
+		response := goxml.NewHtmlXp(string(tp.Responsebody))
+		fmt.Println(strings.Trim(response.Query1(nil, `//a[@id="errormsg"]/text()`), "\n "))
 		return
 	}
 	ApplyMods(tp.Newresponse, m["responsemods"])
@@ -460,6 +471,12 @@ func DoRunTestBirk(m modsset, overwrite *Testparams) (tp *Testparams) {
 		fmt.Println(strings.Trim(strings.SplitN(string(tp.Responsebody), " ", 2)[1], "\n "))
 		return
 	}
+
+    err := ValidateSignature(tp.Firstidpmd, tp.Newresponse)
+    if err != nil {
+        fmt.Printf("signature errors: %s\n", err)
+    }
+
 	return
 }
 
@@ -505,17 +522,17 @@ func DoRunTestKrib(m modsset, overwrite *Testparams) (tp *Testparams) {
 		return
 	}
 	if tp.Logxml {
-		log.Println("final response", tp.Newresponse.Pp())
+		log.Println("final response", tp.Newresponse.Doc.Dump(true))
 	}
 	return
 }
 
 // Html2SAMLResponse extracts the SAMLResponse from a html document
-func Html2SAMLResponse(tp *Testparams) (samlresponse *gosaml.Xp) {
-	response := gosaml.NewHtmlXp(tp.Responsebody)
+func Html2SAMLResponse(tp *Testparams) (samlresponse *goxml.Xp) {
+	response := goxml.NewHtmlXp(string(tp.Responsebody))
 	samlbase64 := response.Query1(nil, `//input[@name="SAMLResponse"]/@value`)
 	samlxml, _ := base64.StdEncoding.DecodeString(samlbase64)
-	samlresponse = gosaml.NewXp(samlxml)
+	samlresponse = goxml.NewXp(string(samlxml))
 	if _, err := samlresponse.SchemaValidate(samlSchema); err != nil {
 		fmt.Println("SchemaError")
 	}
@@ -526,21 +543,22 @@ func Html2SAMLResponse(tp *Testparams) (samlresponse *gosaml.Xp) {
 		log.Printf("Could not find signing cert for: %s", tp.Firstidpmd.Query1(nil, "/@entityID"))
 	}
 
-	_, pub, _ := gosaml.PublicKeyInfo(tp.Firstidpmd.NodeGetContent(certs[0]))
+	_, pub, _ := gosaml.PublicKeyInfo(certs[0].NodeValue())
 	assertion := samlresponse.Query(nil, "saml:Assertion[1]")
 	if assertion == nil {
 		fmt.Println("no assertion found")
 	}
-	if err := samlresponse.VerifySignature(assertion[0], pub); err != nil {
+	if err := samlresponse.VerifySignature(assertion[0].(types.Element), pub); err != nil {
 		fmt.Printf("SignatureVerificationError %s", err)
 	}
 	return
 }
 
-func ValidateSignature(md, xp *gosaml.Xp) (err error) {
+func ValidateSignature(md, xp *goxml.Xp) (err error) {
 
-    //no ds:Object in signatures
-    certificates := md.Query(nil, gosaml.IdpCertQuery)
+    //no ds:Object in signatures `./md:IDPSSODescriptor/md:KeyDescriptor[@use="signing" or not(@use)]/ds:KeyInfo/ds:X509Data/ds:X509Certificate`
+//    certificates := md.Query(nil, gosaml.IdpCertQuery)
+    certificates := md.Query(nil, `./md:IDPSSODescriptor/md:KeyDescriptor[@use="signing" or not(@use)]/ds:KeyInfo/ds:X509Data/ds:X509Certificate`)
     if len(certificates) == 0 {
         err = errors.New("no certificates found in metadata")
         return
@@ -556,14 +574,14 @@ func ValidateSignature(md, xp *gosaml.Xp) (err error) {
     signerrors := []error{}
     for _, certificate := range certificates {
         var key *rsa.PublicKey
-        _, key, err = gosaml.PublicKeyInfo(md.NodeGetContent(certificate))
+        _, key, err = gosaml.PublicKeyInfo(certificate.NodeValue())
 
         if err != nil {
             return
        }
 
         for _, signature := range signatures {
-            signerror := xp.VerifySignature(signature, key)
+            signerror := xp.VerifySignature(signature.(types.Element), key)
             if signerror != nil {
                 signerrors = append(signerrors, signerror)
             } else {
