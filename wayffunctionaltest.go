@@ -26,7 +26,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"github.com/lestrrat/go-libxml2/types"
+	"github.com/wayf-dk/go-libxml2/types"
 	"github.com/wayf-dk/goxml"
 	"github.com/wayf-dk/gosaml"
   . "github.com/y0ssar1an/q"

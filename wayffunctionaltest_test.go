@@ -22,10 +22,9 @@ import (
 	"testing"
 	"text/template"
 	"time"
-	"github.com/lestrrat/go-libxml2/types"
+	"github.com/wayf-dk/go-libxml2/types"
 	"github.com/wayf-dk/goxml"
 	"github.com/wayf-dk/gosaml"
-	"github.com/wayf-dk/gohybrid"
 	"github.com/wayf-dk/lMDQ"
   . "github.com/y0ssar1an/q"
 )
@@ -44,6 +43,35 @@ type (
 
 const (
 	lMDQ_METADATA_SCHEMA_PATH = "src/github.com/wayf-dk/goxml/schemas/ws-federation.xsd"
+
+	Wayfrequestedattributes = `<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://wayf.wayf.dk">
+  <md:SPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:1.1:protocol urn:oasis:names:tc:SAML:2.0:protocol">
+    <md:AttributeConsumingService index="0">
+      <md:RequestedAttribute FriendlyName="sn" singular="true" must="true" Name="urn:oid:2.5.4.4" isRequired="true"/>
+      <md:RequestedAttribute FriendlyName="gn" singular="true" must="true" Name="urn:oid:2.5.4.42" isRequired="true"/>
+      <md:RequestedAttribute FriendlyName="cn" singular="true" must="true" Name="urn:oid:2.5.4.3" isRequired="true"/>
+      <md:RequestedAttribute FriendlyName="eduPersonPrincipalName" singular="true" mandatory="true" Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.6" isRequired="true"/>
+      <md:RequestedAttribute FriendlyName="mail" Name="urn:oid:0.9.2342.19200300.100.1.3" isRequired="true"/>
+      <md:RequestedAttribute FriendlyName="eduPersonPrimaryAffiliation" singular="true" must="true" Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.5" isRequired="true"/>
+      <md:RequestedAttribute FriendlyName="organizationName" singular="true" must="true" Name="urn:oid:2.5.4.10" isRequired="true"/>
+      <md:RequestedAttribute FriendlyName="eduPersonAssurance" singular="true" must="true" Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.11" isRequired="true"/>
+      <md:RequestedAttribute FriendlyName="schacPersonalUniqueID" Name="urn:oid:1.3.6.1.4.1.25178.1.2.15" isRequired="true"/>
+      <md:RequestedAttribute FriendlyName="schacCountryOfCitizenship" singular="true" Name="urn:oid:1.3.6.1.4.1.25178.1.2.5" isRequired="true" />
+      <md:RequestedAttribute FriendlyName="eduPersonScopedAffiliation" Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.9" isRequired="true" />
+      <md:RequestedAttribute FriendlyName="preferredLanguage" Name="urn:oid:2.16.840.1.113730.3.1.39" isRequired="true" />
+      <md:RequestedAttribute FriendlyName="eduPersonEntitlement" Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.7" isRequired="true" />
+      <md:RequestedAttribute FriendlyName="norEduPersonLIN" Name="urn:oid:1.3.6.1.4.1.2428.90.1.4" isRequired="true" />
+      <md:RequestedAttribute FriendlyName="schacHomeOrganization" computed="true" Name="urn:oid:1.3.6.1.4.1.25178.1.2.9" isRequired="true" />
+      <md:RequestedAttribute FriendlyName="eduPersonTargetedID" computed="true" Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.10" isRequired="true" />
+      <md:RequestedAttribute FriendlyName="schacDateOfBirth" Name="urn:oid:1.3.6.1.4.1.25178.1.2.3" isRequired="true" />
+	  <md:RequestedAttribute FriendlyName="schacYearOfBirth" Name="urn:oid:1.3.6.1.4.1.25178.1.0.2.3" isRequired="true" />
+	  <md:RequestedAttribute FriendlyName="schacHomeOrganizationType" computed="true" Name="urn:oid:1.3.6.1.4.1.25178.1.2.10" isRequired="true" />
+	  <md:RequestedAttribute FriendlyName="eduPersonAffiliation" Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.1" isRequired="true" />
+      <md:RequestedAttribute FriendlyName="displayName" Name="urn:oid:2.16.840.1.113730.3.1.241" isRequired="true" />
+    </md:AttributeConsumingService>
+  </md:SPSSODescriptor>
+</md:EntityDescriptor>`
+
 )
 
 var (
@@ -69,9 +97,9 @@ var (
 			"BIRK-OPS": &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_birk.mddb", Url: "https://phph.wayf.dk/test-md/birk-idp-public.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
 		},
 		"hybrid": {
-			"WAYF-HUB-PUBLIC": &lMDQ.MDQ{Silent: true, Path: "/tmp/test_hub.mddb", Url: "https://test-phph.test.lan/MDQ/HUB-OPS/entities/HUB-OPS.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
-			"HUB-OPS":         &lMDQ.MDQ{Silent: true, Path: "/tmp/test_hub_ops.mddb", Url: "https://phph.wayf.dk/md/wayf-hub.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
-			"BIRK-OPS":        &lMDQ.MDQ{Silent: true, Path: "/tmp/test_edugain.mddb", Url: "https://test-phph.test.lan/test-md/MEC.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+			"WAYF-HUB-PUBLIC": &lMDQ.MDQ{Silent: true, Path: "/tmp/test_hub.mddb", Url: "https://test-phph.test.lan/test-md/wayf-metadata.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+			"HUB-OPS":         &lMDQ.MDQ{Silent: true, Path: "/tmp/test_hybrid_fed.mddb", Url: "https://test-phph.test.lan/md/HYBRID-FED.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+			"BIRK-OPS":        &lMDQ.MDQ{Silent: true, Path: "/tmp/test_hybrid_interfed.mddb", Url: "https://test-phph.test.lan/test-md/HYBRID-INTERFED.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
 		},
 	}
 
@@ -109,7 +137,7 @@ var (
 	env              = flag.String("env", "dev", "which environment to test dev, hybrid, prod - if not dev")
 	refreshmd        = flag.Bool("refreshmd", true, "update local metadatcache before testing")
 	testcertpath     = flag.String("testcertpath", "/etc/ssl/wayf/certs/wildcard.test.lan.pem", "path to the testing cert")
-	wayfAttCSDoc     = goxml.NewXp(gohybrid.Wayfrequestedattributes)
+	wayfAttCSDoc     = goxml.NewXp(Wayfrequestedattributes)
 	wayfAttCSElement = wayfAttCSDoc.Query(nil, "./md:SPSSODescriptor/md:AttributeConsumingService")[0]
 
 	testSPs *goxml.Xp
