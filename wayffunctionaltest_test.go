@@ -2,14 +2,17 @@ package wayffunctionaltest
 
 /**
   test: -hub -birk -hybrid
-
-
 */
 
 import (
 	"bytes"
 	"flag"
 	"fmt"
+	"github.com/wayf-dk/go-libxml2/types"
+	"github.com/wayf-dk/gosaml"
+	"github.com/wayf-dk/goxml"
+	"github.com/wayf-dk/lMDQ"
+	. "github.com/y0ssar1an/q"
 	"io"
 	"io/ioutil"
 	"log"
@@ -22,17 +25,12 @@ import (
 	"testing"
 	"text/template"
 	"time"
-	"github.com/wayf-dk/go-libxml2/types"
-	"github.com/wayf-dk/goxml"
-	"github.com/wayf-dk/gosaml"
-	"github.com/wayf-dk/lMDQ"
-  . "github.com/y0ssar1an/q"
 )
 
 type (
 	mod struct {
 		path, value string
-		function func(*goxml.Xp)
+		function    func(*goxml.Xp)
 	}
 
 	mods []mod
@@ -71,39 +69,37 @@ const (
     </md:AttributeConsumingService>
   </md:SPSSODescriptor>
 </md:EntityDescriptor>`
-
 )
 
 var (
 	mdqsources = map[string]map[string]*lMDQ.MDQ{
 		"prodz": {
-			"WAYF-HUB-PUBLIC": &lMDQ.MDQ{Silent: true, Path: "/tmp/WAYF-HUB-PUBLIC.mddb", Url: "https://test-phph.test.lan/md/WAYF-HUB-PUBLIC.mddb", Hash: "3c9a81a80e9032f888ba3cc7ac564364c38f283e", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
-//			"WAYF-HUB-PUBLIC": &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_hub.mddb", Url: "https://phph.wayf.dk/md/wayf-hub.xml", Hash: "f328b1e2b9edeb416403ac70601bc1306f74a836", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
-			"HUB-OPS":  &lMDQ.MDQ{Silent: true, Path: "/tmp/HUB-OPS.mddb", Url: "https://test-phph.test.lan/md/HUB-OPS.mddb", Hash: "3c9a81a80e9032f888ba3cc7ac564364c38f283e", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
-			"BIRK-OPS": &lMDQ.MDQ{Silent: true, Path: "/tmp/birk-idp-public.mddb", Url: "https://test-phph.test.lan/md/birk-idp-public.mddb", Hash: "3c9a81a80e9032f888ba3cc7ac564364c38f283e", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
-			"idp-transitive": &lMDQ.MDQ{Silent: true, Path: "/tmp/wayf-idp-transitive.mddb", Url: "https://test-phph.test.lan/md/wayf-idp-transitive.mddb", Hash: "3c9a81a80e9032f888ba3cc7ac564364c38f283e", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+			"internal":        &lMDQ.MDQ{Path: "../hybrid-metadata.mddb", Table: "HYBRID_INTERNAL"},
+			"externalIdP":     &lMDQ.MDQ{Path: "../hybrid-metadata-test.mddb", Table: "HYBRID_EXTERNAL_IDP"},
+			"externalSP":      &lMDQ.MDQ{Path: "../hybrid-metadata.mddb", Table: "HYBRID_EXTERNAL_SP"},
+			"wayf_hub_public": &lMDQ.MDQ{Path: "../hybrid-metadata-test.mddb", Table: "WAYF_HUB_PUBLIC"},
 		},
 		"prod": {
-			"WAYF-HUB-PUBLIC": &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_hub.mddb", Url: "https://metadata.wayf.dk/wayf-metadata.xml", Hash: "3c9a81a80e9032f888ba3cc7ac564364c38f283e", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
-//			"WAYF-HUB-PUBLIC": &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_hub.mddb", Url: "https://phph.wayf.dk/md/wayf-hub.xml", Hash: "f328b1e2b9edeb416403ac70601bc1306f74a836", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
-			"HUB-OPS":  &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_hub_ops.mddb", Url: "https://phph.wayf.dk/md/HUB.xml", Hash: "3c9a81a80e9032f888ba3cc7ac564364c38f283e", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
-			"BIRK-OPS": &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_birk.mddb", Url: "https://phph.wayf.dk/md/birk-idp-public.xml", Hash: "3c9a81a80e9032f888ba3cc7ac564364c38f283e", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
-//			"idp-transitive": &lMDQ.MDQ{Silent: true, Path: "/tmp/idp-transitive.mddb", Url: "https://phph.wayf.dk/md/wayf-idp-transitive.xml", Hash: "3c9a81a80e9032f888ba3cc7ac564364c38f283e", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+			"internal":        &lMDQ.MDQ{Path: "../hybrid-metadata.mddb", Table: "HYBRID_INTERNAL"},
+			"externalIdP":     &lMDQ.MDQ{Path: "../hybrid-metadata-test.mddb", Table: "HYBRID_EXTERNAL_IDP"},
+			"externalSP":      &lMDQ.MDQ{Path: "../hybrid-metadata.mddb", Table: "HYBRID_EXTERNAL_SP"},
+			"wayf_hub_public": &lMDQ.MDQ{Path: "../hybrid-metadata-test.mddb", Table: "WAYF_HUB_PUBLIC"},
 		},
 		"dev": {
-			"WAYF-HUB-PUBLIC": &lMDQ.MDQ{Silent: true, Path: "/tmp/test_hub.mddb", Url: "https://phph.wayf.dk/test-md/wayf-metadata.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
-//			"WAYF-HUB-PUBLIC": &lMDQ.MDQ{Silent: true, Path: "/tmp/test_hub.mddb", Url: "https://phph.wayf.dk/md/wayf-metadata.xml", Hash: "3c9a81a80e9032f888ba3cc7ac564364c38f283e", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
-			"HUB-OPS":  &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_hub_ops.mddb", Url: "https://phph.wayf.dk/test-md/HUB.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
-			"BIRK-OPS": &lMDQ.MDQ{Silent: true, Path: "/tmp/prod_birk.mddb", Url: "https://phph.wayf.dk/test-md/birk-idp-public.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+			"internal":        &lMDQ.MDQ{Path: "../hybrid-metadata.mddb", Table: "HYBRID_INTERNAL"},
+			"externalIdP":     &lMDQ.MDQ{Path: "../hybrid-metadata-test.mddb", Table: "HYBRID_EXTERNAL_IDP"},
+			"externalSP":      &lMDQ.MDQ{Path: "../hybrid-metadata.mddb", Table: "HYBRID_EXTERNAL_SP"},
+			"wayf_hub_public": &lMDQ.MDQ{Path: "../hybrid-metadata-test.mddb", Table: "WAYF_HUB_PUBLIC"},
 		},
 		"hybrid": {
-			"WAYF-HUB-PUBLIC": &lMDQ.MDQ{Silent: true, Path: "/tmp/test_hub.mddb", Url: "https://test-phph.test.lan/test-md/wayf-metadata.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
-			"HUB-OPS":         &lMDQ.MDQ{Silent: true, Path: "/tmp/test_hybrid_fed.mddb", Url: "https://test-phph.test.lan/md/HYBRID-FED.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
-			"BIRK-OPS":        &lMDQ.MDQ{Silent: true, Path: "/tmp/test_hybrid_interfed.mddb", Url: "https://test-phph.test.lan/test-md/HYBRID-INTERFED.xml", Hash: "e0cff78934baa85a4a1b084dcb586fe6bb2f7619", MetadataSchemaPath: lMDQ_METADATA_SCHEMA_PATH},
+			"internal":        &lMDQ.MDQ{Path: "../hybrid-metadata.mddb", Table: "HYBRID_INTERNAL"},
+			"externalIdP":     &lMDQ.MDQ{Path: "../hybrid-metadata-test.mddb", Table: "HYBRID_EXTERNAL_IDP"},
+			"externalSP":      &lMDQ.MDQ{Path: "../hybrid-metadata.mddb", Table: "HYBRID_EXTERNAL_SP"},
+			"wayf_hub_public": &lMDQ.MDQ{Path: "../hybrid-metadata-test.mddb", Table: "WAYF_HUB_PUBLIC"},
 		},
 	}
 
-	wayf_hub_public, wayf2_hub_public, hub_ops, birk_ops, idp_transitive *lMDQ.MDQ
+	wayf_hub_public, wayf2_hub_public, internal, externalIdP, externalSP *lMDQ.MDQ
 
 	avals = map[string][]string{
 		"eduPersonPrincipalName": {"joe@this.is.not.a.valid.idp"},
@@ -137,7 +133,7 @@ var (
 	env              = flag.String("env", "dev", "which environment to test dev, hybrid, prod - if not dev")
 	refreshmd        = flag.Bool("refreshmd", true, "update local metadatcache before testing")
 	testcertpath     = flag.String("testcertpath", "/etc/ssl/wayf/certs/wildcard.test.lan.pem", "path to the testing cert")
-	wayfAttCSDoc     = goxml.NewXp(Wayfrequestedattributes)
+	wayfAttCSDoc     = goxml.NewXpFromString(Wayfrequestedattributes)
 	wayfAttCSElement = wayfAttCSDoc.Query(nil, "./md:SPSSODescriptor/md:AttributeConsumingService")[0]
 
 	testSPs *goxml.Xp
@@ -169,31 +165,24 @@ func TestMain(m *testing.M) {
 	flag.Parse()
 	log.Printf("hub: %q backend: %q birk: %q backend: %q\n", *hub, *hubbe, *birk, *birkbe)
 	mdsources := map[string]**lMDQ.MDQ{
-//		"WAYF2-HUB-PUBLIC": &wayf2_hub_public,
-		"WAYF-HUB-PUBLIC": &wayf_hub_public,
-		"HUB-OPS":         &hub_ops,
-		"BIRK-OPS":        &birk_ops,
-//		"idp-transitive":  &idp_transitive,
+		"wayf_hub_public": &wayf_hub_public,
+		"internal":        &internal,
+		"externalIdP":     &externalIdP,
+		"externalSP":      &externalSP,
 	}
 	var err error
 	for i, md := range mdsources {
 		*md = mdqsources[*env][i]
-		err = (*md).Open((*md).Path)
+		err = (*md).Open()
 		if err != nil {
 			log.Fatalln(err)
 		}
-		if *refreshmd {
-			err = (*md).Update()
-            if err != nil {
-                log.Fatalln(err)
-            }
-		}
 	}
 	// need non-birk, non-request.validate and non-IDPList SPs for testing ....
-	// look for them in the test_hub_ops feed as wayf:wayf attributes are not yet int the prod feed
+	// look for them in the test_internal feed as wayf:wayf attributes are not yet int the prod feed
 	var numberOfTestSPs int
-	testSPs, numberOfTestSPs, _ = hub_ops.MDQFilter("/*[not(contains(@entityID, 'birk.wayf.dk/birk.php'))]/*/wayf:wayf[not(wayf:IDPList!='') and wayf:redirect.validate='']/../../md:SPSSODescriptor/..")
-//	testSPs, numberOfTestSPs, _ = hub_ops.MDQFilter("/*[not(contains(@entityID, 'birk.wayf.dk/birk.php'))]/*/wayf:wayf[not(wayf:IDPList!='')]/../../md:SPSSODescriptor/..")
+	testSPs, numberOfTestSPs, _ = internal.MDQFilter("/*[not(contains(@entityID, 'birk.wayf.dk/birk.php'))]/*/wayf:wayf[not(wayf:IDPList!='') and wayf:redirect.validate='']/../../md:SPSSODescriptor/..")
+	//	testSPs, numberOfTestSPs, _ = internal.MDQFilter("/*[not(contains(@entityID, 'birk.wayf.dk/birk.php'))]/*/wayf:wayf[not(wayf:IDPList!='')]/../../md:SPSSODescriptor/..")
 	if numberOfTestSPs == 0 {
 		log.Fatal("No testSP candidates")
 	}
@@ -225,7 +214,7 @@ func stdoutend(t *testing.T, expected string) {
 	expected = b.String()
 	Q(expected, got)
 	if expected == "" {
-//		t.Errorf("unexpected empty expected string\n")
+		//		t.Errorf("unexpected empty expected string\n")
 	}
 
 	if expected != got {
@@ -239,16 +228,19 @@ func Newtp(overwrite *Testparams) (tp *Testparams) {
 	if tp.Privatekeypw == "" {
 		log.Fatal("no PW environment var")
 	}
+	var err error
 	tp.Env = *env
 	tp.Krib = *dokrib
 	tp.Birk = *dobirk
 	tp.Hub = *dohub
-	tp.Spmd, _ = hub_ops.MDQ("https://wayfsp.wayf.dk")
-	tp.Hubspmd, _ = wayf_hub_public.MDQ("https://wayf.wayf.dk")
+	tp.Spmd, _ = internal.MDQ("https://wayfsp.wayf.dk")
+	tp.Hubspmd, err = wayf_hub_public.MDQ("https://wayf.wayf.dk")
+	Q(err)
 
-//	tp.Hubspmd.QueryDashP(nil, "/md:SPSSODescriptor/md:AssertionConsumerService[1]/@Location", "https://wayf.wayf.dk/saml2/sp/AssertionConsumerService.php", nil)
-//	log.Println(tp.Hubspmd.Pp())
+	//	tp.Hubspmd.QueryDashP(nil, "/md:SPSSODescriptor/md:AssertionConsumerService[1]/@Location", "https://wayf.wayf.dk/saml2/sp/AssertionConsumerService.php", nil)
+	//	log.Println(tp.Hubspmd.Pp())
 
+	Q(tp)
 	tp.Hubspmd.Query(nil, "./md:SPSSODescriptor")[0].AddChild(wayfAttCSDoc.CopyNode(wayfAttCSElement, 1))
 	tp.Hubidpmd, _ = wayf_hub_public.MDQ("https://wayf.wayf.dk")
 
@@ -261,10 +253,10 @@ func Newtp(overwrite *Testparams) (tp *Testparams) {
 		}
 	*/
 	tp.Resolv = map[string]string{wayfserver: *hub, "birk.wayf.dk": *birk}
-	tp.Idpmd, _ = hub_ops.MDQ("https://this.is.not.a.valid.idp")
+	tp.Idpmd, _ = internal.MDQ("https://this.is.not.a.valid.idp")
 	tp.Firstidpmd = tp.Hubidpmd
 	if tp.Birk {
-		tp.Birkmd, _ = birk_ops.MDQ("https://birk.wayf.dk/birk.php/this.is.not.a.valid.idp")
+		tp.Birkmd, _ = externalIdP.MDQ("https://birk.wayf.dk/birk.php/this.is.not.a.valid.idp")
 	}
 
 	tp.DSIdpentityID = "https://this.is.not.a.valid.idp"
@@ -305,7 +297,7 @@ func Newtp(overwrite *Testparams) (tp *Testparams) {
 		}
 		if overwrite.Hubidpmd != nil {
 			tp.Hubidpmd = overwrite.Hubidpmd
-	        tp.Firstidpmd = tp.Hubidpmd
+			tp.Firstidpmd = tp.Hubidpmd
 		}
 		if overwrite.Encryptresponse {
 			tp.Encryptresponse = true
@@ -339,7 +331,7 @@ func mapFields(x *Testparams) M {
 
 func b(attrs map[string][]string) (ats *goxml.Xp) {
 	template := `<saml:AttributeStatement xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xs="http://www.w3.org/2001/XMLSchema"/>`
-	ats = goxml.NewXp(template)
+	ats = goxml.NewXpFromString(template)
 	i := 1
 	for attr, attrvals := range attrs {
 		attrelement := ats.QueryDashP(nil, `saml:Attribute[`+strconv.Itoa(i)+`]`, "", nil)
@@ -378,7 +370,7 @@ func TestAttributeNameFormat(t *testing.T) {
 	dorun := func(f testrun) {
 		for _, attrname := range attrnameformats {
 			eID := testSPs.Query1(nil, attrnameformatqueries[attrname])
-			md, _ := hub_ops.MDQ(eID)
+			md, _ := internal.MDQ(eID)
 			if md == nil {
 				log.Fatalln("No SP found for testing attributenameformat: ", attrname)
 			}
@@ -421,11 +413,11 @@ func xTestMultipleSPs(t *testing.T) {
 		eIDs := testSPs.Query(nil, spquery)
 
 		for _, eID := range eIDs {
-			md, _ := hub_ops.MDQ(eID.NodeValue())
+			md, _ := internal.MDQ(eID.NodeValue())
 			if md == nil {
 				log.Fatalln("No SP found for testing multiple SPs: ", eID)
 			}
-		    f(nil, &Testparams{Spmd: md})
+			f(nil, &Testparams{Spmd: md})
 		}
 	}
 	dorun(DoRunTestHub)
@@ -439,10 +431,10 @@ func TestConsentDisabled(t *testing.T) {
 	// We need to get at the wayf:wayf elements - thus we got directly to the feed !!!
 	//	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
 	expected := ""
-	// find an entity with content disabled, but no a birk entity as we know that using ssp does not understand the wayf namespace yet ...
+	// find an entity with consent disabled, but no a birk entity as we know that using ssp does not understand the wayf namespace yet ...
 	entityID := testSPs.Query1(nil, "/*/*/*/wayf:wayf[wayf:consent.disable='1']/../../md:SPSSODescriptor/../@entityID")
 	if entityID != "" {
-		entitymd, _ := hub_ops.MDQ(entityID)
+		entitymd, _ := internal.MDQ(entityID)
 
 		dorun := func(f testrun) {
 			tp := f(nil, &Testparams{Spmd: entitymd})
@@ -473,10 +465,10 @@ func xTestPersistentNameID(t *testing.T) {
 	//	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
 	expected := ""
 	entityID := testSPs.Query1(nil, "/*/*/md:SPSSODescriptor/md:NameIDFormat[.='urn:oasis:names:tc:SAML:2.0:nameid-format:persistent']/../md:AttributeConsumingService/md:RequestedAttribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10' or @Name='eduPersonTargetedID']/../../../@entityID")
-	entitymd, _ := hub_ops.MDQ(entityID)
-    if entitymd == nil {
-        log.Fatalln("no SP found for testing TestPersistentNameID")
-    }
+	entitymd, _ := internal.MDQ(entityID)
+	if entitymd == nil {
+		log.Fatalln("no SP found for testing TestPersistentNameID")
+	}
 
 	dorun := func(f testrun) {
 		tp := f(nil, &Testparams{Spmd: entitymd})
@@ -504,7 +496,7 @@ func TestTransientNameID(t *testing.T) {
 	//	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
 	expected := ""
 	eID := testSPs.Query1(nil, "/*/*/md:SPSSODescriptor/md:NameIDFormat[.='urn:oasis:names:tc:SAML:2.0:nameid-format:transient']/../../@entityID")
-	entitymd, _ := hub_ops.MDQ(eID)
+	entitymd, _ := internal.MDQ(eID)
 	var tp *Testparams
 	entityID := ""
 	dorun := func(f testrun) {
@@ -608,16 +600,16 @@ sn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
 `
 	res := DoRunTestBirk(nil, nil)
 	if res != nil {
-		gosaml.AttributeCanonicalDump(res.Newresponse)
+		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
 	}
 
 	res = DoRunTestHub(nil, nil)
 	if res != nil {
-		gosaml.AttributeCanonicalDump(res.Newresponse)
+		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
 	}
 	res = DoRunTestKrib(nil, nil)
 	if res != nil {
-		gosaml.AttributeCanonicalDump(res.Newresponse)
+		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
 		expected += `cn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     Anton Banton Cantonsen
 eduPersonAssurance urn:oasis:names:tc:SAML:2.0:attrname-format:basic
@@ -666,25 +658,25 @@ sn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
 func TestFullAttributesetSP2(t *testing.T) {
 	var expected string
 	stdoutstart()
-	spmd, _ := hub_ops.MDQ("https://metadata.wayf.dk/PHPh")
+	spmd, _ := internal.MDQ("https://metadata.wayf.dk/PHPh")
 	overwrite := &Testparams{Spmd: spmd}
 	hub := DoRunTestHub(nil, overwrite)
 	if hub != nil {
-		gosaml.AttributeCanonicalDump(hub.Newresponse)
+		gosaml.AttributeCanonicalDump(os.Stdout, hub.Newresponse)
 		expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     joe@this.is.not.a.valid.idp
 `
 	}
 	birk := DoRunTestBirk(nil, overwrite)
 	if birk != nil {
-		gosaml.AttributeCanonicalDump(birk.Newresponse)
+		gosaml.AttributeCanonicalDump(os.Stdout, birk.Newresponse)
 		expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     joe@this.is.not.a.valid.idp
 `
 	}
 	krib := DoRunTestKrib(nil, overwrite)
 	if krib != nil {
-		gosaml.AttributeCanonicalDump(krib.Newresponse)
+		gosaml.AttributeCanonicalDump(os.Stdout, krib.Newresponse)
 		expected += `urn:oid:1.3.6.1.4.1.5923.1.1.1.6 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     joe@this.is.not.a.valid.idp
 `
@@ -697,7 +689,7 @@ func TestFullAttributesetSP2(t *testing.T) {
 func TestFullAttributesetSP3(t *testing.T) {
 	var expected string
 	stdoutstart()
-	spmd, _ := hub_ops.MDQ("https://metadata.wayf.dk/PHPh")
+	spmd, _ := internal.MDQ("https://metadata.wayf.dk/PHPh")
 	hub2idpmd, _ := wayf2_hub_public.MDQ("https://wayf.wayf.dk")
 	overwrite := &Testparams{Spmd: spmd, Hubidpmd: hub2idpmd}
 	hub := DoRunTestHub(nil, overwrite)
@@ -731,11 +723,11 @@ urn:oid:1.3.6.1.4.1.5923.1.1.1.6 urn:oasis:names:tc:SAML:2.0:attrname-format:bas
 func TestFullEncryptedAttributeset1(t *testing.T) {
 	var expected string
 	stdoutstart()
-	spmd, _ := hub_ops.MDQ("https://metadata.wayf.dk/PHPh")
+	spmd, _ := internal.MDQ("https://metadata.wayf.dk/PHPh")
 	overwrite := &Testparams{Encryptresponse: true, Spmd: spmd}
 	res := DoRunTestHub(nil, overwrite)
 	if res != nil {
-		gosaml.AttributeCanonicalDump(res.Newresponse)
+		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
 		expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     joe@this.is.not.a.valid.idp
 `
@@ -745,7 +737,7 @@ func TestFullEncryptedAttributeset1(t *testing.T) {
 		res = DoRunTestBirk(nil, overwrite)
 	}
 	if res != nil {
-		gosaml.AttributeCanonicalDump(res.Newresponse)
+		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
 		expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     joe@this.is.not.a.valid.idp
 `
@@ -757,7 +749,7 @@ func TestFullEncryptedAttributeset1(t *testing.T) {
 func TestFullEncryptedAttributeset2(t *testing.T) {
 	var expected string
 	stdoutstart()
-	spmd, _ := hub_ops.MDQ("https://metadata.wayf.dk/PHPh")
+	spmd, _ := internal.MDQ("https://metadata.wayf.dk/PHPh")
 	hub2spmd, _ := wayf2_hub_public.MDQ("https://wayf.wayf.dk")
 	overwrite := &Testparams{Encryptresponse: true, Spmd: spmd, Hubspmd: hub2spmd}
 
@@ -788,11 +780,11 @@ urn:oid:1.3.6.1.4.1.5923.1.1.1.6 urn:oasis:names:tc:SAML:2.0:attrname-format:bas
 func TestAccessForNonIntersectingAdHocFederations(t *testing.T) {
 	var expected string
 	stdoutstart()
-	spmd, _ := hub_ops.MDQ("https://this.is.not.a.valid.sp")
+	spmd, _ := internal.MDQ("https://this.is.not.a.valid.sp")
 	overwrite := &Testparams{Spmd: spmd}
 	res := DoRunTestHub(nil, overwrite)
 	if res != nil {
-		gosaml.AttributeCanonicalDump(res.Newresponse)
+		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
 		expected += `unknown error
 `
 	}
@@ -802,7 +794,7 @@ func TestAccessForNonIntersectingAdHocFederations(t *testing.T) {
 		res = DoRunTestBirk(nil, overwrite)
 	}
 	if res != nil {
-		gosaml.AttributeCanonicalDump(res.Newresponse)
+		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
 		expected += `unknown error
 `
 	}
@@ -1021,25 +1013,25 @@ func xTestXSW1(t *testing.T) {
 
 // from https://github.com/SAMLRaider/SAMLRaider/blob/master/src/main/java/helpers/XSWHelpers.java
 func ApplyXSW1(xp *goxml.Xp) {
-    log.Println(xp.Doc.Dump(true))
-    response := xp.Query(nil, "/samlp:Response[1]/saml:Assertion[1]")[0]
-    clonedResponse := xp.CopyNode(response, 1)
-    log.Println(clonedResponse.ToString(0, false))
-    clonedSignature := xp.Query(clonedResponse, "././.")[0]
-    log.Println(clonedSignature.ToString(1, false))
-    parent, _ := clonedSignature.(types.Element).ParentNode()
-    parent.RemoveChild(clonedSignature)
+	log.Println(xp.Doc.Dump(true))
+	response := xp.Query(nil, "/samlp:Response[1]/saml:Assertion[1]")[0]
+	clonedResponse := xp.CopyNode(response, 1)
+	log.Println(clonedResponse.ToString(0, false))
+	clonedSignature := xp.Query(clonedResponse, "././.")[0]
+	log.Println(clonedSignature.ToString(1, false))
+	parent, _ := clonedSignature.(types.Element).ParentNode()
+	parent.RemoveChild(clonedSignature)
 
-    signature := xp.Query(response, "ds:Signature[1]")[0]
-    signature.AddChild(clonedResponse)
-    response.(types.Element).SetAttribute("ID", "_evil_response_ID");
-    log.Println(xp.Doc.Dump(true))
+	signature := xp.Query(response, "ds:Signature[1]")[0]
+	signature.AddChild(clonedResponse)
+	response.(types.Element).SetAttribute("ID", "_evil_response_ID")
+	log.Println(xp.Doc.Dump(true))
 }
 
 func xTestSpeed(t *testing.T) {
 	const gorutines = 50
 	const iterations = 50
-	spmd, _ := hub_ops.MDQ("https://metadata.wayf.dk/PHPh")
+	spmd, _ := internal.MDQ("https://metadata.wayf.dk/PHPh")
 	for i := 0; i < gorutines; i++ {
 		wg.Add(1)
 		go func(i int) {
