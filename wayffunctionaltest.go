@@ -115,6 +115,7 @@ func (tp *Testparams) SSOSendRequest1() {
 	// initial request - to hub or birk
 	tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
 	// Errors from BIRK is 500 + text/plain
+
 	if tp.Err != nil || tp.Resp.StatusCode == 500 {
 		return
 	}
@@ -128,7 +129,8 @@ func (tp *Testparams) SSOSendRequest1() {
 		q := u.Query()
 		q.Set(query["returnIDParam"][0], tp.DSIdpentityID)
 		u.RawQuery = q.Encode()
-		tp.Resp, _, _ = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
+		tp.Resp, tp.Responsebody, _ = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
+
 	}
 }
 
@@ -149,6 +151,7 @@ func (tp *Testparams) SSOSendRequest2() {
 
 		tp.Resp, tp.Responsebody, _ = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
 		u, _ = tp.Resp.Location()
+
 	}
 
 	// We still expect to be redirected
@@ -235,7 +238,6 @@ func (tp *Testparams) SSOSendResponse() {
 	if tp.Resp.StatusCode == 500 {
 		return
 	}
-	Q(string(tp.Responsebody), tp.Resp.Header)
 	if u, _ = tp.Resp.Location(); u != nil {
 		if strings.Contains(u.Path, "displayerror.php") {
 			tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
@@ -307,11 +309,9 @@ func (tp *Testparams) sendRequest(url *url.URL, server, method, body string, coo
 	}
 
 	req.Header.Add("Host", host)
-	Q(req)
 
 	resp, err = client.Do(req)
 	if err != nil && !strings.HasSuffix(err.Error(), "redirect-not-allowed") {
-		Q(err, resp)
 		// we need to do the redirect ourselves so a self inflicted redirect "error" is not an error
 		debug.PrintStack()
 		log.Fatalln("client.do", err)
@@ -363,7 +363,7 @@ func (tp *Testparams) sendRequest(url *url.URL, server, method, body string, coo
 //     if the value starts with "+ " the the node content is prefixed with the rest of the value
 //     Otherwise the node content is replaced with the value
 func ApplyMods(xp *goxml.Xp, m mods) {
-	//log.Printf("%+v\n", m)
+	//log.Printf("applyMOds %+v\n", m)
 	//log.Println(xp.X2s())
 	for _, change := range m {
 		if change.function != nil {
@@ -390,9 +390,9 @@ func ApplyMods(xp *goxml.Xp, m mods) {
 // DoRunTestHub runs a test on the hub - applying the necessary modifications on the way.
 // Returns a *Testparams which can be analyzed
 func DoRunTestHub(m modsset, overwrite *Testparams) (tp *Testparams) {
-	if *dokrib {
-		return DoRunTestKrib(m, overwrite)
-	}
+	//	if *dokrib {
+	//		return DoRunTestKrib(m, overwrite)
+	//	}
 	if !*dohub {
 		return
 	}
@@ -433,7 +433,7 @@ func DoRunTestBirk(m modsset, overwrite *Testparams) (tp *Testparams) {
 	tp = Newtp(overwrite)
 	defer xxx(tp.Trace)
 	tp.Firstidpmd = tp.Birkmd
-	tp.Usedoubleproxy = true
+	//tp.Usedoubleproxy = true
 
 	ApplyMods(tp.Attributestmt, m["attributemods"])
 	tp.SSOCreateInitialRequest()
@@ -491,6 +491,7 @@ func DoRunTestKrib(m modsset, overwrite *Testparams) (tp *Testparams) {
 	ApplyMods(tp.Initialrequest, m["requestmods"])
 	//    log.Println(tp.Initialrequest.Pp())
 	tp.SSOSendRequest1()
+
 	if tp.Resp.StatusCode == 500 {
 		fmt.Println(strings.TrimSpace(string(tp.Responsebody)))
 		return
@@ -507,6 +508,7 @@ func DoRunTestKrib(m modsset, overwrite *Testparams) (tp *Testparams) {
 	if tp.Newresponse == nil {
 		log.Panic(string(tp.Responsebody))
 	}
+	ApplyMods(tp.Newresponse, m["responsemods"])
 	tp.SSOSendResponse()
 	if tp.Resp.StatusCode == 500 {
 		fmt.Println(strings.TrimSpace(string(tp.Responsebody)))
@@ -514,6 +516,7 @@ func DoRunTestKrib(m modsset, overwrite *Testparams) (tp *Testparams) {
 	}
 
 	tp.SSOSendResponse()
+
 	if tp.Resp.StatusCode == 500 {
 		fmt.Println(strings.TrimSpace(string(tp.Responsebody)))
 		return

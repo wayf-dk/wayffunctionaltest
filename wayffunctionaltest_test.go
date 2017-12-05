@@ -81,9 +81,9 @@ var (
 		},
 		"prod": {
 			"internal":        &lMDQ.MDQ{Path: "../hybrid-metadata.mddb", Table: "HYBRID_INTERNAL"},
-			"externalIdP":     &lMDQ.MDQ{Path: "../hybrid-metadata-test.mddb", Table: "HYBRID_EXTERNAL_IDP"},
+			"externalIdP":     &lMDQ.MDQ{Path: "../hybrid-metadata.mddb", Table: "HYBRID_EXTERNAL_IDP"},
 			"externalSP":      &lMDQ.MDQ{Path: "../hybrid-metadata.mddb", Table: "HYBRID_EXTERNAL_SP"},
-			"wayf_hub_public": &lMDQ.MDQ{Path: "../hybrid-metadata-test.mddb", Table: "WAYF_HUB_PUBLIC"},
+			"wayf_hub_public": &lMDQ.MDQ{Path: "../hybrid-metadata.mddb", Table: "WAYF_HUB_PUBLIC"},
 		},
 		"dev": {
 			"internal":        &lMDQ.MDQ{Path: "../hybrid-metadata.mddb", Table: "HYBRID_INTERNAL"},
@@ -125,10 +125,12 @@ var (
 	hubbe            = flag.String("hubbe", "", "the hub backend server")
 	birk             = flag.String("birk", "birk.wayf.dk", "the hostname for the BIRK server to be tested")
 	birkbe           = flag.String("birkbe", "", "the birk backend server")
+	krib             = flag.String("krib", "krib.wayf.dk", "the krib.wayf.dk server")
 	trace            = flag.Bool("xtrace", false, "trace the request/response flow")
 	logxml           = flag.Bool("logxml", false, "dump requests/responses in xml")
 	dohub            = flag.Bool("dohub", false, "do test the hub")
 	dobirk           = flag.Bool("dobirk", false, "do test BIRK")
+	dobirk2          = flag.Bool("dobirk2", false, "do test BIRK")
 	dokrib           = flag.Bool("dokrib", false, "do (only) test KRIB - implies !birk and !hub")
 	env              = flag.String("env", "dev", "which environment to test dev, hybrid, prod - if not dev")
 	refreshmd        = flag.Bool("refreshmd", true, "update local metadatcache before testing")
@@ -212,7 +214,6 @@ func stdoutend(t *testing.T, expected string) {
 	tmpl := template.Must(template.New("expected").Parse(expected))
 	_ = tmpl.Execute(&b, templatevalues[*env])
 	expected = b.String()
-	Q(expected, got)
 	if expected == "" {
 		//		t.Errorf("unexpected empty expected string\n")
 	}
@@ -235,12 +236,10 @@ func Newtp(overwrite *Testparams) (tp *Testparams) {
 	tp.Hub = *dohub
 	tp.Spmd, _ = internal.MDQ("https://wayfsp.wayf.dk")
 	tp.Hubspmd, err = wayf_hub_public.MDQ("https://wayf.wayf.dk")
-	Q(err)
 
 	//	tp.Hubspmd.QueryDashP(nil, "/md:SPSSODescriptor/md:AssertionConsumerService[1]/@Location", "https://wayf.wayf.dk/saml2/sp/AssertionConsumerService.php", nil)
 	//	log.Println(tp.Hubspmd.Pp())
 
-	Q(tp)
 	tp.Hubspmd.Query(nil, "./md:SPSSODescriptor")[0].AddChild(wayfAttCSDoc.CopyNode(wayfAttCSElement, 1))
 	tp.Hubidpmd, _ = wayf_hub_public.MDQ("https://wayf.wayf.dk")
 
@@ -252,7 +251,7 @@ func Newtp(overwrite *Testparams) (tp *Testparams) {
 			tp.Hubidpmd = newMD("https://betawayf.wayf.dk/saml2/idp/metadata.php")
 		}
 	*/
-	tp.Resolv = map[string]string{wayfserver: *hub, "birk.wayf.dk": *birk}
+	tp.Resolv = map[string]string{wayfserver: *hub, "birk.wayf.dk": *birk, "krib.wayf.dk": *krib, "ds.wayf.dk": "localhost"}
 	tp.Idpmd, _ = internal.MDQ("https://this.is.not.a.valid.idp")
 	tp.Firstidpmd = tp.Hubidpmd
 	if tp.Birk {
@@ -330,11 +329,25 @@ func mapFields(x *Testparams) M {
 }
 
 func b(attrs map[string][]string) (ats *goxml.Xp) {
-	template := `<saml:AttributeStatement xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xs="http://www.w3.org/2001/XMLSchema"/>`
+	template := `<saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+<saml:Subject>
+	<saml:NameID Format="urn:oasis:names:tc:SAML:2.0:nameid-format:transient"></saml:NameID>
+</saml:Subject>
+<saml:AuthnStatement>
+	<saml:AuthnContext>
+		<saml:AuthnContextClassRef>
+			urn:oasis:names:tc:SAML:2.0:ac:classes:Password
+		</saml:AuthnContextClassRef>
+	</saml:AuthnContext>
+</saml:AuthnStatement>
+<saml:AttributeStatement/>
+</saml:Assertion>`
+
 	ats = goxml.NewXpFromString(template)
+	attributeStmt := ats.Query(nil, "./saml:AttributeStatement")[0]
 	i := 1
 	for attr, attrvals := range attrs {
-		attrelement := ats.QueryDashP(nil, `saml:Attribute[`+strconv.Itoa(i)+`]`, "", nil)
+		attrelement := ats.QueryDashP(attributeStmt, `saml:Attribute[`+strconv.Itoa(i)+`]`, "", nil)
 		ats.QueryDashP(attrelement, "@Name", attr, nil)
 		ats.QueryDashP(attrelement, "@NameFormat", "urn:oasis:names:tc:SAML:2.0:attrname-format:basic", nil)
 		j := 1
@@ -388,6 +401,7 @@ func TestAttributeNameFormat(t *testing.T) {
 	expected := ""
 	dorun(DoRunTestHub)
 	dorun(DoRunTestBirk)
+	dorun(DoRunTestKrib)
 	if *dohub {
 		expected += `false true false
 false false true
@@ -610,46 +624,6 @@ sn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
 	res = DoRunTestKrib(nil, nil)
 	if res != nil {
 		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
-		expected += `cn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    Anton Banton Cantonsen
-eduPersonAssurance urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    2
-eduPersonEntitlement urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    https://example.com/course101
-eduPersonPrimaryAffiliation urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    student
-eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    joe@this.is.not.a.valid.idp
-eduPersonScopedAffiliation urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    member@this.is.not.a.valid.idp
-    student@this.is.not.a.valid.idp
-eduPersonTargetedID urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    WAYF-DK-a7379f69e957371dc49350a27b704093c0b813f1
-gn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    Anton Banton <SamlRequest id="abc">abc</SamlRequest>
-mail urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    joe@example.com
-norEduPersonLIN urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    123456789
-organizationName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    Orphanage - home for the homeless
-preferredLanguage urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    da
-schacCountryOfCitizenship urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    dk
-schacDateOfBirth urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    18580824
-schacHomeOrganization urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    this.is.not.a.valid.idp
-schacHomeOrganizationType urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    urn:mace:terena.org:schac:homeOrganizationType:int:other
-schacPersonalUniqueID urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    urn:mace:terena.org:schac:personalUniqueID:dk:CPR:2408586234
-schacYearOfBirth urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    1858
-sn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    Cantonsen
-`
 	}
 	stdoutend(t, expected)
 }
@@ -663,24 +637,18 @@ func TestFullAttributesetSP2(t *testing.T) {
 	hub := DoRunTestHub(nil, overwrite)
 	if hub != nil {
 		gosaml.AttributeCanonicalDump(os.Stdout, hub.Newresponse)
-		expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    joe@this.is.not.a.valid.idp
-`
 	}
 	birk := DoRunTestBirk(nil, overwrite)
 	if birk != nil {
 		gosaml.AttributeCanonicalDump(os.Stdout, birk.Newresponse)
-		expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    joe@this.is.not.a.valid.idp
-`
 	}
 	krib := DoRunTestKrib(nil, overwrite)
 	if krib != nil {
 		gosaml.AttributeCanonicalDump(os.Stdout, krib.Newresponse)
-		expected += `urn:oid:1.3.6.1.4.1.5923.1.1.1.6 urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+	}
+	expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     joe@this.is.not.a.valid.idp
 `
-	}
 	stdoutend(t, expected)
 }
 
@@ -784,21 +752,19 @@ func TestAccessForNonIntersectingAdHocFederations(t *testing.T) {
 	overwrite := &Testparams{Spmd: spmd}
 	res := DoRunTestHub(nil, overwrite)
 	if res != nil {
-		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
 		expected += `unknown error
 `
 	}
-	Q(res, expected)
-	res = DoRunTestKrib(nil, overwrite)
-	if res == nil {
-		res = DoRunTestBirk(nil, overwrite)
-	}
+	res = DoRunTestBirk(nil, overwrite)
 	if res != nil {
-		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
 		expected += `unknown error
 `
 	}
-	Q(res, expected)
+	res = DoRunTestKrib(nil, overwrite)
+	if res != nil {
+		expected += `no common federations
+`
+	}
 	stdoutend(t, expected)
 }
 
@@ -813,6 +779,10 @@ func TestSignErrorModifiedContent(t *testing.T) {
 	}
 	if DoRunTestBirk(m, nil) != nil {
 		expected += `Error verifying signature on incoming SAMLResponse
+`
+	}
+	if DoRunTestKrib(m, nil) != nil {
+		expected += `unable to validate signature: digest mismatch
 `
 	}
 	stdoutend(t, expected)
@@ -831,6 +801,10 @@ func TestSignErrorModifiedSignature(t *testing.T) {
 		expected += `Error verifying signature on incoming SAMLResponse
 `
 	}
+	if DoRunTestKrib(m, nil) != nil {
+		expected += `unable to validate signature: crypto/rsa: verification error
+`
+	}
 	stdoutend(t, expected)
 }
 
@@ -845,6 +819,10 @@ func TestNoSignatureError(t *testing.T) {
 	}
 	if DoRunTestBirk(m, nil) != nil {
 		expected += `Error verifying signature on incoming SAMLResponse
+`
+	}
+	if DoRunTestKrib(m, nil) != nil {
+		expected += `No signatures found
 `
 	}
 	stdoutend(t, expected)
@@ -890,6 +868,10 @@ mYqIGJZzLM/wk1u/CG52i+zDOiYbeiYNZc7qhIFU9ueinr88YZo=
 		expected += `Unable to validate Signature
 `
 	}
+	if DoRunTestKrib(nil, &Testparams{Privatekey: pk, Privatekeypw: "-"}) != nil {
+		expected += `unable to validate signature: crypto/rsa: verification error
+`
+	}
 	stdoutend(t, expected)
 }
 
@@ -904,6 +886,10 @@ func TestRequestSchemaError(t *testing.T) {
 	}
 	if DoRunTestBirk(m, nil) != nil {
 		expected += `SAMLMessage does not validate according to schema: , error(s): line: 2:0, error: Element '{urn:oasis:names:tc:SAML:2.0:protocol}AuthnRequest', attribute 'IsPassive': 'isfalse' is not a valid value of the atomic type 'xs:boolean'.
+`
+	}
+	if DoRunTestKrib(m, nil) != nil {
+		expected += `["cause:schema validation failed"]
 `
 	}
 	stdoutend(t, expected)
@@ -922,6 +908,10 @@ func TestResponseSchemaError(t *testing.T) {
 		expected += `SAMLMessage does not validate according to schema: , error(s): line: 2:0, error: Element '{urn:oasis:names:tc:SAML:2.0:protocol}Response', attribute 'IssueInstant': 'isfalse' is not a valid value of the atomic type 'xs:dateTime'.
 `
 	}
+	if DoRunTestKrib(m, nil) != nil {
+		expected += `["cause:schema validation failed"]
+`
+	}
 	stdoutend(t, expected)
 }
 
@@ -934,6 +924,10 @@ func TestNoEPPNError(t *testing.T) {
 		expected += `mandatory: eduPersonPrincipalName
 `
 	}
+	if DoRunTestKrib(m, nil) != nil {
+		expected += `eppn does not seem to be an eppn:
+`
+	}
 	stdoutend(t, expected)
 }
 
@@ -941,9 +935,14 @@ func TestNoEPPNError(t *testing.T) {
 func TestEPPNScopingError(t *testing.T) {
 	var expected string
 	stdoutstart()
-	m := modsset{"attributemods": mods{mod{`/./././saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue`, "joe@example.com", nil}}}
+	m := modsset{"attributemods": mods{mod{`/saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue`, "joe@example.com", nil}}}
 	if DoRunTestHub(m, nil) != nil {
-		expected += ``
+		expected += `security domain 'example.com' for eppn does not match any scopes
+`
+	}
+	if DoRunTestKrib(m, nil) != nil {
+		expected += `security domain 'example.com' for eppn does not match any scopes
+`
 	}
 	stdoutend(t, expected)
 }
@@ -952,9 +951,13 @@ func TestEPPNScopingError(t *testing.T) {
 func TestNoLocalpartInEPPNError(t *testing.T) {
 	var expected string
 	stdoutstart()
-	m := modsset{"attributemods": mods{mod{`/./././saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue`, "@this.is.not.a.valid.idp", nil}}}
+	m := modsset{"attributemods": mods{mod{`/saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue`, "@this.is.not.a.valid.idp", nil}}}
 	if DoRunTestHub(m, nil) != nil {
 		expected += ``
+	}
+	if DoRunTestKrib(m, nil) != nil {
+		expected += `eppn does not seem to be an eppn: @this.is.not.a.valid.idp
+`
 	}
 	stdoutend(t, expected)
 }
@@ -963,9 +966,13 @@ func TestNoLocalpartInEPPNError(t *testing.T) {
 func TestNoDomainInEPPNError(t *testing.T) {
 	var expected string
 	stdoutstart()
-	m := modsset{"attributemods": mods{mod{`/./././saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue`, "joe", nil}}}
+	m := modsset{"attributemods": mods{mod{`/saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue`, "joe", nil}}}
 	if DoRunTestHub(m, nil) != nil {
 		expected += ``
+	}
+	if DoRunTestKrib(m, nil) != nil {
+		expected += `eppn does not seem to be an eppn: joe
+`
 	}
 	stdoutend(t, expected)
 }
@@ -983,6 +990,10 @@ func TestUnknownSPError(t *testing.T) {
 		expected += `Metadata for entity: https://www.example.com/unknownentity not found
 `
 	}
+	if DoRunTestKrib(m, nil) != nil {
+		expected += `["cause:sql: no rows in result set","err:Metadata not found","key:https://www.example.com/unknownentity","table:HYBRID_INTERNAL"]
+`
+	}
 	stdoutend(t, expected)
 }
 
@@ -997,6 +1008,10 @@ func TestUnknownIDPError(t *testing.T) {
 		expected += `Metadata for entity: https://birk.wayf.dk/birk.php/www.example.com/unknownentity not found
 `
 	}
+	if DoRunTestKrib(m, nil) != nil {
+		expected += `["cause:sql: no rows in result set","err:Metadata not found","key:https://birk.wayf.dk/birk.php/www.example.com/unknownentity","table:HYBRID_EXTERNAL_IDP"]
+`
+	}
 	stdoutend(t, expected)
 }
 
@@ -1006,6 +1021,11 @@ func xTestXSW1(t *testing.T) {
 	m := modsset{"responsemods": mods{mod{"", "", ApplyXSW1}}}
 	if DoRunTestHub(m, nil) != nil {
 		expected += `Metadata for entity: https://birk.wayf.dk/birk.php/www.example.com/unknownentity not found
+`
+	}
+	if DoRunTestKrib(m, nil) != nil {
+		expected += `["cause:sql: no rows in result set","err:Metadata not found","key:https://birk.wayf.dk/birk.php/www.example.com/unknownentity","table:HYBRID_EXTERNAL_IDP"]
+
 `
 	}
 	stdoutend(t, expected)
