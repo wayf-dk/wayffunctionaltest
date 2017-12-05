@@ -12,7 +12,7 @@ import (
 	"github.com/wayf-dk/gosaml"
 	"github.com/wayf-dk/goxml"
 	"github.com/wayf-dk/lMDQ"
-//	. "github.com/y0ssar1an/q"
+	//	. "github.com/y0ssar1an/q"
 	"io"
 	"io/ioutil"
 	"log"
@@ -147,6 +147,10 @@ var (
 			"eptid":   "WAYF-DK-c52a92a5467ae336a2be77cd06719c645e72dfd2",
 			"pnameid": "WAYF-DK-c52a92a5467ae336a2be77cd06719c645e72dfd2",
 		},
+		"prodz": {
+			"eptid":   "WAYF-DK-a7379f69e957371dc49350a27b704093c0b813f1",
+			"pnameid": "WAYF-DK-a7379f69e957371dc49350a27b704093c0b813f1",
+		},
 		"dev": {
 			"eptid":   "WAYF-DK-a7379f69e957371dc49350a27b704093c0b813f1",
 			"pnameid": "WAYF-DK-a7379f69e957371dc49350a27b704093c0b813f1",
@@ -154,10 +158,6 @@ var (
 		"hybrid": {
 			"eptid":   "WAYF-DK-a7379f69e957371dc49350a27b704093c0b813f1",
 			"pnameid": "WAYF-DK-a7379f69e957371dc49350a27b704093c0b813f1",
-		},
-		"beta": {
-			"eptid":   "WAYF-DK-c52a92a5467ae336a2be77cd06719c645e72dfd2",
-			"pnameid": "WAYF-DK-c52a92a5467ae336a2be77cd06719c645e72dfd2",
 		},
 	}
 	wg sync.WaitGroup
@@ -217,10 +217,11 @@ func stdoutend(t *testing.T, expected string) {
 	if expected == "" {
 		//		t.Errorf("unexpected empty expected string\n")
 	}
-
 	if expected != got {
 		t.Errorf("\nexpected:\n%s\ngot:\n%s\n", expected, got)
 	}
+	fmt.Printf("\nexpected:\n%s\ngot:\n%s\n", expected, got)
+
 }
 
 func Newtp(overwrite *Testparams) (tp *Testparams) {
@@ -232,7 +233,7 @@ func Newtp(overwrite *Testparams) (tp *Testparams) {
 	var err error
 	tp.Env = *env
 	tp.Krib = *dokrib
-	tp.Birk = *dobirk
+	tp.Birk = *dobirk || *dobirk2
 	tp.Hub = *dohub
 	tp.Spmd, _ = internal.MDQ("https://wayfsp.wayf.dk")
 	tp.Hubspmd, err = wayf_hub_public.MDQ("https://wayf.wayf.dk")
@@ -244,13 +245,6 @@ func Newtp(overwrite *Testparams) (tp *Testparams) {
 	tp.Hubidpmd, _ = wayf_hub_public.MDQ("https://wayf.wayf.dk")
 
 	wayfserver := "wayf.wayf.dk"
-	/*
-		if tp.Env == "beta" {
-			wayfserver = "betawayf.wayf.dk"
-			tp.Hubspmd = newMD("https://betawayf.wayf.dk/module.php/saml/sp/metadata.php/betawayf.wayf.dk")
-			tp.Hubidpmd = newMD("https://betawayf.wayf.dk/saml2/idp/metadata.php")
-		}
-	*/
 	tp.Resolv = map[string]string{wayfserver: *hub, "birk.wayf.dk": *birk, "krib.wayf.dk": *krib, "ds.wayf.dk": "localhost"}
 	tp.Idpmd, _ = internal.MDQ("https://this.is.not.a.valid.idp")
 	tp.Firstidpmd = tp.Hubidpmd
@@ -344,7 +338,7 @@ func b(attrs map[string][]string) (ats *goxml.Xp) {
 </saml:Assertion>`
 
 	ats = goxml.NewXpFromString(template)
- 	ats.QueryDashP(nil, "./saml:Subject/saml:NameID", gosaml.Id(), nil)
+	ats.QueryDashP(nil, "./saml:Subject/saml:NameID", gosaml.Id(), nil)
 	attributeStmt := ats.Query(nil, "./saml:AttributeStatement")[0]
 	i := 1
 	for attr, attrvals := range attrs {
@@ -420,7 +414,7 @@ false false true
 
 // TestMultipleSPs tests just test a lot of SPs - if any fails signature validation it fails
 func xTestMultipleSPs(t *testing.T) {
-	//stdoutstart()
+	stdoutstart()
 
 	spquery := "/*/*/@entityID"
 
@@ -432,12 +426,28 @@ func xTestMultipleSPs(t *testing.T) {
 			if md == nil {
 				log.Fatalln("No SP found for testing multiple SPs: ", eID)
 			}
+			if md.Query1(nil, "./md:Extensions/wayf:wayf/wayf:feds[.='eduGAIN']") == "eduGAIN" {
+				continue
+			}
+			if md.Query1(nil, "./md:Extensions/wayf:wayf/wayf:feds[.='WAYF']") == "" {
+				continue
+			}
+			fmt.Println("eID", eID.NodeValue())
 			f(nil, &Testparams{Spmd: md})
 		}
 	}
+
+	//dorun := func(f testrun) {
+	//       md, _ := internal.MDQ("https://federatedlogin.sdbf.dk")
+	//       f(nil, &Testparams{Spmd: md})
+	//       md, _ = internal.MDQ("https://censorkorps.ruc.dk/")
+	//       f(nil, &Testparams{Spmd: md})
+	//}
+
 	dorun(DoRunTestHub)
-	//expected := ""
-	//stdoutend(t, expected)
+	dorun(DoRunTestKrib)
+	expected := ""
+	stdoutend(t, expected)
 }
 
 // TestConsentDisabled tests that a SP with consent.disabled set actually bypasses the consent form
@@ -464,6 +474,11 @@ func TestConsentDisabled(t *testing.T) {
 		}
 		if *dobirk {
 			dorun(DoRunTestBirk)
+			expected += `consent given false
+`
+		}
+		if *dokrib {
+			dorun(DoRunTestKrib)
 			expected += `consent given false
 `
 		}
@@ -527,6 +542,10 @@ func TestTransientNameID(t *testing.T) {
 		}
 	}
 	dorun(DoRunTestHub)
+	if tp != nil {
+		expected += `urn:oasis:names:tc:SAML:2.0:nameid-format:transient true ` + entityID + ` ` + entityID + "\n"
+	}
+	dorun(DoRunTestKrib)
 	if tp != nil {
 		expected += `urn:oasis:names:tc:SAML:2.0:nameid-format:transient true ` + entityID + ` ` + entityID + "\n"
 	}
@@ -694,23 +713,21 @@ func TestFullEncryptedAttributeset1(t *testing.T) {
 	stdoutstart()
 	spmd, _ := internal.MDQ("https://metadata.wayf.dk/PHPh")
 	overwrite := &Testparams{Encryptresponse: true, Spmd: spmd}
-	res := DoRunTestHub(nil, overwrite)
-	if res != nil {
-		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
-		expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+	hub := DoRunTestHub(nil, overwrite)
+	if hub != nil {
+		gosaml.AttributeCanonicalDump(os.Stdout, hub.Newresponse)
+	}
+	birk := DoRunTestBirk(nil, overwrite)
+	if birk != nil {
+		gosaml.AttributeCanonicalDump(os.Stdout, birk.Newresponse)
+	}
+	krib := DoRunTestKrib(nil, overwrite)
+	if krib != nil {
+		gosaml.AttributeCanonicalDump(os.Stdout, krib.Newresponse)
+	}
+	expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     joe@this.is.not.a.valid.idp
 `
-	}
-	res = DoRunTestKrib(nil, overwrite)
-	if res == nil {
-		res = DoRunTestBirk(nil, overwrite)
-	}
-	if res != nil {
-		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
-		expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    joe@this.is.not.a.valid.idp
-`
-	}
 	stdoutend(t, expected)
 }
 
@@ -938,8 +955,7 @@ func TestEPPNScopingError(t *testing.T) {
 	stdoutstart()
 	m := modsset{"attributemods": mods{mod{`/saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue`, "joe@example.com", nil}}}
 	if DoRunTestHub(m, nil) != nil {
-		expected += `security domain 'example.com' for eppn does not match any scopes
-`
+		expected += ``
 	}
 	if DoRunTestKrib(m, nil) != nil {
 		expected += `security domain 'example.com' for eppn does not match any scopes
@@ -992,8 +1008,13 @@ func TestUnknownSPError(t *testing.T) {
 `
 	}
 	if DoRunTestKrib(m, nil) != nil {
-		expected += `["cause:sql: no rows in result set","err:Metadata not found","key:https://www.example.com/unknownentity","table:HYBRID_INTERNAL"]
+		if *dobirk2 { // hybrid direct to BIRK - looks for SP in EXTERNAL_SP
+			expected += `["cause:sql: no rows in result set","err:Metadata not found","key:https://www.example.com/unknownentity","table:HYBRID_EXTERNAL_SP"]
 `
+		} else {
+			expected += `["cause:sql: no rows in result set","err:Metadata not found","key:https://www.example.com/unknownentity","table:HYBRID_INTERNAL"]
+`
+		}
 	}
 	stdoutend(t, expected)
 }

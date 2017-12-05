@@ -19,7 +19,7 @@ import (
 	"github.com/wayf-dk/go-libxml2/types"
 	"github.com/wayf-dk/gosaml"
 	"github.com/wayf-dk/goxml"
-//	. "github.com/y0ssar1an/q"
+	//	. "github.com/y0ssar1an/q"
 	"io"
 	"io/ioutil"
 	"log"
@@ -98,6 +98,9 @@ func (tp *Testparams) SSOSendRequest() {
 				}
 				return
 			}
+		} else {
+			//fmt.Println(string(tp.Responsebody))
+			return
 		}
 	}
 	tp.SSOSendRequest2()
@@ -145,7 +148,7 @@ func (tp *Testparams) SSOSendRequest2() {
 			query := u.Query()
 			req, _ := base64.StdEncoding.DecodeString(query["SAMLRequest"][0])
 			authnrequest := goxml.NewXp(gosaml.Inflate(req))
-			log.Println("birkrequest", authnrequest.Doc.Dump(true))
+			log.Println("birkrequest", authnrequest.PP())
 		}
 
 		tp.Resp, tp.Responsebody, _ = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
@@ -172,7 +175,7 @@ func (tp *Testparams) SSOSendRequest2() {
 	authnrequest := goxml.NewXp(gosaml.Inflate(req))
 
 	if tp.Logxml {
-		log.Println("idprequest", authnrequest.Doc.Dump(true))
+		log.Println("idprequest", authnrequest.PP())
 	}
 
 	// create a response
@@ -190,7 +193,7 @@ func (tp *Testparams) SSOSendRequest2() {
 	}
 
 	if tp.Logxml {
-		log.Println("response", tp.Newresponse.Doc.Dump(true))
+		log.Println("response", tp.Newresponse.PP())
 	}
 
 	if tp.Encryptresponse {
@@ -216,7 +219,7 @@ func (tp *Testparams) SSOSendRequest2() {
 		tp.Encryptresponse = false // for now only possible for idp -> hub
 
 		if tp.Logxml {
-			log.Println("response", tp.Newresponse.Doc.Dump(true))
+			log.Println("response", tp.Newresponse.PP())
 		}
 	}
 
@@ -264,7 +267,7 @@ func (tp *Testparams) SSOSendResponse() {
 		return
 	} else {
 		if tp.Logxml {
-			log.Println("response", tp.Newresponse.Doc.Dump(true))
+			log.Println("response", tp.Newresponse.PP())
 		}
 	}
 }
@@ -432,7 +435,7 @@ func DoRunTestBirk(m modsset, overwrite *Testparams) (tp *Testparams) {
 	tp = Newtp(overwrite)
 	defer xxx(tp.Trace)
 	tp.Firstidpmd = tp.Birkmd
-	//tp.Usedoubleproxy = true
+	tp.Usedoubleproxy = true
 
 	ApplyMods(tp.Attributestmt, m["attributemods"])
 	tp.SSOCreateInitialRequest()
@@ -476,8 +479,43 @@ func DoRunTestBirk(m modsset, overwrite *Testparams) (tp *Testparams) {
 	return
 }
 
+func DoRunTestBirk2(m modsset, overwrite *Testparams) (tp *Testparams) {
+	if !*dobirk2 {
+		return
+	}
+	tp = Newtp(overwrite)
+	defer xxx(tp.Trace)
+	tp.Firstidpmd = tp.Birkmd
+	ApplyMods(tp.Attributestmt, m["attributemods"])
+	tp.SSOCreateInitialRequest()
+	ApplyMods(tp.Initialrequest, m["requestmods"])
+
+	tp.SSOSendRequest()
+	if tp.Resp.StatusCode == 500 {
+		fmt.Println(strings.TrimSpace(string(tp.Responsebody)))
+		return
+	}
+	ApplyMods(tp.Newresponse, m["responsemods"])
+	tp.SSOSendResponse()
+	if tp.Resp.StatusCode == 500 {
+		fmt.Println(strings.TrimSpace(string(tp.Responsebody)))
+		return
+	}
+
+	//log.Println("Firstidpmd", tp.Firstidpmd.PP())
+	err := ValidateSignature(tp.Firstidpmd, tp.Newresponse)
+	if err != nil {
+		fmt.Printf("signature errors: %s\n", err)
+	}
+
+	return
+}
+
 // DoRunTestKrib
 func DoRunTestKrib(m modsset, overwrite *Testparams) (tp *Testparams) {
+	if *dobirk2 {
+		return DoRunTestBirk2(m, overwrite)
+	}
 	if !*dokrib {
 		return
 	}
@@ -521,7 +559,7 @@ func DoRunTestKrib(m modsset, overwrite *Testparams) (tp *Testparams) {
 		return
 	}
 	if tp.Logxml {
-		log.Println("final response", tp.Newresponse.Doc.Dump(true))
+		log.Println("final response", tp.Newresponse.PP())
 	}
 	return
 }
