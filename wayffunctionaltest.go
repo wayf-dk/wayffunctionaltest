@@ -130,7 +130,6 @@ func (tp *Testparams) SSOSendRequest1() {
 		q.Set(query["returnIDParam"][0], tp.DSIdpentityID)
 		u.RawQuery = q.Encode()
 		tp.Resp, tp.Responsebody, _ = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
-
 	}
 }
 
