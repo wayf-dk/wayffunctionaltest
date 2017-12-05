@@ -12,7 +12,7 @@ import (
 	"github.com/wayf-dk/gosaml"
 	"github.com/wayf-dk/goxml"
 	"github.com/wayf-dk/lMDQ"
-	. "github.com/y0ssar1an/q"
+//	. "github.com/y0ssar1an/q"
 	"io"
 	"io/ioutil"
 	"log"
@@ -344,6 +344,7 @@ func b(attrs map[string][]string) (ats *goxml.Xp) {
 </saml:Assertion>`
 
 	ats = goxml.NewXpFromString(template)
+ 	ats.QueryDashP(nil, "./saml:Subject/saml:NameID", gosaml.Id(), nil)
 	attributeStmt := ats.Query(nil, "./saml:AttributeStatement")[0]
 	i := 1
 	for attr, attrvals := range attrs {
