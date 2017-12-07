@@ -19,26 +19,23 @@ import (
 	"github.com/wayf-dk/go-libxml2/types"
 	"github.com/wayf-dk/gosaml"
 	"github.com/wayf-dk/goxml"
-	//	. "github.com/y0ssar1an/q"
+	"github.com/y0ssar1an/q"
 	"io"
 	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"runtime/debug"
 	"strconv"
 	"strings"
-	"time"
-)
-
-const (
-	samlSchema = "src/github.com/wayf-dk/goxml/schemas/saml-schema-protocol-2.0.xsd"
 )
 
 var (
 	_ = log.Printf // For debugging; delete when done.
 	_ = fmt.Printf
+	_ = q.Q
 )
 
 type (
@@ -52,8 +49,6 @@ type (
 		Cookiejar                                          map[string]map[string]*http.Cookie
 		IdpentityID                                        string
 		DSIdpentityID                                      string
-		Usescope                                           bool
-		Usedoubleproxy                                     bool
 		Resolv                                             map[string]string
 		Initialrequest                                     *goxml.Xp
 		Newresponse                                        *goxml.Xp
@@ -76,99 +71,102 @@ type (
 	testrun func(modsset, *Testparams) *Testparams
 )
 
-// SSOCreateInitialRequest creates a SAMLRequest given the tp Testparams
-func (tp *Testparams) SSOCreateInitialRequest() {
-	if tp.Usescope {
-		tp.IdpentityID = tp.Idpmd.Query1(nil, "@entityID")
+// Does what the browser does follow redirects and POSTs and displays errors
+func browse(m modsset, overwrite *Testparams) (tp *Testparams) {
+	tp = Newtp(overwrite)
+	stage := map[string]string{"hub": "wayf.wayf.dk", "birk": "birk.wayf.dk", "birk2": "wayf.wayf.dk", "krib": "krib.wayf.dk"}[*do]
+
+	ApplyMods(tp.Attributestmt, m["attributemods"])
+	//q.Q("tp", tp)
+	tp.Initialrequest, _ = gosaml.NewAuthnRequest(nil, tp.Spmd, tp.Firstidpmd, tp.IdpentityID)
+	ApplyMods(tp.Initialrequest, m["requestmods"])
+	u, _ := gosaml.SAMLRequest2Url(tp.Initialrequest, "", "", "", "")
+
+	// when to stop
+	finalDestination, _ := url.Parse(tp.Initialrequest.Query1(nil, "./@AssertionConsumerServiceURL"))
+	redirects := 7
+	method := "GET"
+	body := ""
+	for {
+		redirects--
+		if redirects == 0 {
+			return
+		}
+		if method == "POST" {
+			acs := tp.Newresponse.Query1(nil, "@Destination")
+			u, _ = url.Parse(acs)
+			//q.Q(u, finalDestination)
+			if u.Host == finalDestination.Host {
+				err := ValidateSignature(tp.Firstidpmd, tp.Newresponse)
+				if err != nil {
+					fmt.Printf("signature errors: %s\n", err)
+				}
+				break
+			}
+			if u.Host == stage { // only change the response to the place we are actually testing (wayf|birk|krib).wayf.dk
+				ApplyMods(tp.Newresponse, m["responsemods"])
+			}
+
+			data := url.Values{}
+			data.Set("SAMLResponse", base64.StdEncoding.EncodeToString([]byte(tp.Newresponse.Doc.Dump(false))))
+			body = data.Encode()
+			//log.Println("SAMLResponse", tp.Newresponse.PP())
+		}
+
+		//q.Q("u", method, redirects, u)
+		tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], method, body, tp.Cookiejar)
+		tp.Resp.TLS = nil
+		tp.Resp.Body = nil
+		//q.Q("resp", tp, tp.Err, tp.Resp, string(tp.Responsebody))
+		if u, _ = tp.Resp.Location(); u != nil { // we don't care about the StatusCode - Location means redirect
+			if tp.Err == nil { // for now dont' care about StatusCode
+				query := u.Query()
+				// we got to a discoveryservice - choose our testidp
+				if len(query["return"]) > 0 && len(query["returnIDParam"]) > 0 {
+					u, _ = url.Parse(query["return"][0])
+					q := u.Query()
+					q.Set(query["returnIDParam"][0], tp.DSIdpentityID)
+					u.RawQuery = q.Encode()
+				} else if strings.Contains(u.Path, "getconsent.php") { // hub consent
+					u.RawQuery = u.RawQuery + "&yes=1"
+					tp.ConsentGiven = true
+				}
+			}
+			if u.Host != "this.is.not.a.valid.idp" {
+				method = "GET"
+				body = ""
+			} else {
+				tp.newresponse(u)
+				method = "POST"
+			}
+			continue
+		}
+		if tp.Resp.StatusCode == 500 {
+			error := ""
+			if tp.Resp.Header.Get("content-type") == "text/html" { // hub errors
+				error = goxml.NewHtmlXp(tp.Responsebody).Query1(nil, `//a[@id="errormsg"]/text()`)
+			} else { // birk & krib errors
+				error = string(tp.Responsebody)
+				error = regexp.MustCompile("^\\d* ").ReplaceAllString(error, "")
+			}
+			fmt.Println(strings.Trim(error, "\n "))
+			break
+		} else {
+			tp.Newresponse, _ = gosaml.Html2SAMLResponse(tp.Responsebody)
+			if tp.Newresponse.Query1(nil, ".") == "" { // from old hub - disjoint federations
+				fmt.Println("unknown error")
+				break
+			}
+			method = "POST"
+		}
 	}
-	tp.Initialrequest, _ = gosaml.NewAuthnRequest(gosaml.IdAndTiming{time.Now(), 4 * time.Minute, 4 * time.Hour, "", ""}, nil, tp.Spmd, tp.Firstidpmd, tp.IdpentityID)
+	if tp.Trace {
+		log.Println()
+	}
 	return
 }
 
-// SSOSendRequest sends a SAMLRequest to the @Destination and follows the redirects to the test idp
-// If it meets a discovery service it reponds with the testidp
-func (tp *Testparams) SSOSendRequest() {
-	tp.SSOSendRequest1()
-	if tp.Err != nil || tp.Resp.StatusCode == 500 {
-		if u, _ := tp.Resp.Location(); u != nil {
-			if strings.Contains(u.Path, "displayerror.php") {
-				tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
-				if tp.Logxml {
-					log.Println("Displayerror:", string(tp.Responsebody))
-				}
-				return
-			}
-		} else {
-			//fmt.Println(string(tp.Responsebody))
-			return
-		}
-	}
-	tp.SSOSendRequest2()
-}
-
-// SSOSendRequest1 does the 1st part of sending the request, handles the discovery service if needed
-func (tp *Testparams) SSOSendRequest1() {
-
-	if tp.Logxml {
-		log.Println(tp)
-		log.Println("initialrequest:", tp.Initialrequest.Doc.Dump(true))
-	}
-	u, _ := gosaml.SAMLRequest2Url(tp.Initialrequest, "", "", "", "")
-
-	// initial request - to hub or birk
-	tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
-	// Errors from BIRK is 500 + text/plain
-
-	if tp.Err != nil || tp.Resp.StatusCode == 500 {
-		return
-	}
-
-	u, _ = tp.Resp.Location()
-
-	query := u.Query()
-	// we got to a discoveryservice - choose our testidp
-	if len(query["return"]) > 0 && len(query["returnIDParam"]) > 0 {
-		u, _ = url.Parse(query["return"][0])
-		q := u.Query()
-		q.Set(query["returnIDParam"][0], tp.DSIdpentityID)
-		u.RawQuery = q.Encode()
-		tp.Resp, tp.Responsebody, _ = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
-	}
-}
-
-// SSOSendRequest2 does the 2nd part of sending the request to the final IdP.
-// Creates the response and signs and optionally encrypts it
-func (tp *Testparams) SSOSendRequest2() {
-	u, _ := tp.Resp.Location()
-
-	// if going via birk we now got a scoped request to the hub
-	if tp.Usedoubleproxy {
-
-		if tp.Logxml {
-			query := u.Query()
-			req, _ := base64.StdEncoding.DecodeString(query["SAMLRequest"][0])
-			authnrequest := goxml.NewXp(gosaml.Inflate(req))
-			log.Println("birkrequest", authnrequest.PP())
-		}
-
-		tp.Resp, tp.Responsebody, _ = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
-		u, _ = tp.Resp.Location()
-
-	}
-
-	// We still expect to be redirected
-	// if we are not at our final IdP something is rotten
-
-	eid := tp.Idpmd.Query1(nil, "@entityID")
-	idp, _ := url.Parse(eid)
-	if u.Host != idp.Host {
-		//log.Println("u.host != idp.Host", u, idp)
-		// Errors from HUB is 302 to https://wayf.wayf.dk/displayerror.php ... which is a 500 with html content
-		u, _ = tp.Resp.Location()
-		tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
-		return
-	}
-
+func (tp *Testparams) newresponse(u *url.URL) {
 	// get the SAMLRequest
 	query := u.Query()
 	req, _ := base64.StdEncoding.DecodeString(query["SAMLRequest"][0])
@@ -179,7 +177,7 @@ func (tp *Testparams) SSOSendRequest2() {
 	}
 
 	// create a response
-	tp.Newresponse = gosaml.NewResponse(gosaml.IdAndTiming{time.Now(), 4 * time.Minute, 4 * time.Hour, "", ""}, tp.Idpmd, tp.Hubspmd, authnrequest, tp.Attributestmt)
+	tp.Newresponse = gosaml.NewResponse(tp.Idpmd, tp.Hubspmd, authnrequest, tp.Attributestmt)
 
 	// and sign it
 	assertion := tp.Newresponse.Query(nil, "saml:Assertion[1]")[0]
@@ -218,54 +216,6 @@ func (tp *Testparams) SSOSendRequest2() {
 		tp.Newresponse.Encrypt(assertion.(types.Element), publickey, ea)
 		tp.Encryptresponse = false // for now only possible for idp -> hub
 
-		if tp.Logxml {
-			log.Println("response", tp.Newresponse.PP())
-		}
-	}
-
-	return
-}
-
-// SSOSendResponse POSTs a SAML response and follows the POSTs back to the orignal requester
-// It answers yes to the possible WAYF consent page it meets along the way
-// If it encounters an error page it returns immediately
-func (tp *Testparams) SSOSendResponse() {
-	acs := tp.Newresponse.Query1(nil, "@Destination")
-	data := url.Values{}
-	data.Set("SAMLResponse", base64.StdEncoding.EncodeToString([]byte(tp.Newresponse.Doc.Dump(false))))
-
-	u, _ := url.Parse(acs)
-	tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "POST", data.Encode(), tp.Cookiejar)
-
-	if tp.Resp.StatusCode == 500 {
-		return
-	}
-	if u, _ = tp.Resp.Location(); u != nil {
-		if strings.Contains(u.Path, "displayerror.php") {
-			tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
-			if tp.Logxml {
-				log.Println("Displayerror:", string(tp.Responsebody))
-			}
-			return
-		}
-		// and now for some consent
-		if strings.Contains(u.Path, "getconsent.php") {
-			u.RawQuery = u.RawQuery + "&yes=1"
-			tp.ConsentGiven = true
-			tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], "GET", "", tp.Cookiejar)
-			u, _ = tp.Resp.Location()
-		}
-	}
-
-	tp.Newresponse, _ = gosaml.Html2SAMLResponse(tp.Responsebody)
-	if tp.Newresponse.Query1(nil, "/samlp:Response") == "" { // is it non-displayerror.php error find out which
-		if tp.Logxml {
-			log.Println("response", string(tp.Responsebody))
-		}
-		tp.Resp.StatusCode = 500
-		tp.Responsebody = []byte(`<html><body><a id="errormsg" href="http://www.example.com">unknown error</a></body></html>`) // fake an error from displayerror.php
-		return
-	} else {
 		if tp.Logxml {
 			log.Println("response", tp.Newresponse.PP())
 		}
@@ -392,209 +342,42 @@ func ApplyMods(xp *goxml.Xp, m mods) {
 // DoRunTestHub runs a test on the hub - applying the necessary modifications on the way.
 // Returns a *Testparams which can be analyzed
 func DoRunTestHub(m modsset, overwrite *Testparams) (tp *Testparams) {
-	//	if *dokrib {
-	//		return DoRunTestKrib(m, overwrite)
-	//	}
-	if !*dohub {
+	if !dohub {
 		return
 	}
-	tp = Newtp(overwrite)
-	defer xxx(tp.Trace)
-	ApplyMods(tp.Attributestmt, m["attributemods"])
-	tp.SSOCreateInitialRequest()
-	ApplyMods(tp.Initialrequest, m["requestmods"])
-
-	tp.SSOSendRequest()
-	if tp.Resp.StatusCode == 500 {
-		response := goxml.NewHtmlXp(tp.Responsebody)
-		fmt.Println(strings.Trim(response.Query1(nil, `//a[@id="errormsg"]/text()`), "\n "))
-		return
-	}
-	ApplyMods(tp.Newresponse, m["responsemods"])
-	tp.SSOSendResponse()
-	if tp.Resp.StatusCode == 500 {
-		response := goxml.NewHtmlXp(tp.Responsebody)
-		fmt.Println(strings.Trim(response.Query1(nil, `//a[@id="errormsg"]/text()`), "\n "))
-		return
-	}
-
-	err := ValidateSignature(tp.Hubidpmd, tp.Newresponse)
-	if err != nil {
-		fmt.Printf("signature errors: %s\n", err)
-	}
-
+	tp = browse(m, overwrite)
 	return
 }
 
-// DoRunTestBirk runs a test on the hub - applying the necessary modifications on the way
-// Returns a *Testparams which can be analyzed
 func DoRunTestBirk(m modsset, overwrite *Testparams) (tp *Testparams) {
-	if !*dobirk {
+	if !dobirk {
 		return
 	}
-	tp = Newtp(overwrite)
-	defer xxx(tp.Trace)
-	tp.Firstidpmd = tp.Birkmd
-	tp.Usedoubleproxy = true
-
-	ApplyMods(tp.Attributestmt, m["attributemods"])
-	tp.SSOCreateInitialRequest()
-	ApplyMods(tp.Initialrequest, m["requestmods"])
-	//    log.Println(tp.Initialrequest.Pp())
-	tp.SSOSendRequest1()
-	if tp.Resp.StatusCode == 500 {
-		fmt.Println(strings.Trim(strings.SplitN(string(tp.Responsebody), " ", 2)[1], "\n "))
-		return
-	}
-	authnrequest, _ := gosaml.Url2SAMLRequest(tp.Resp.Location())
-	ApplyMods(authnrequest, m["birkrequestmods"])
-	//    log.Println(authnrequest.Pp())
-	u, _ := gosaml.SAMLRequest2Url(authnrequest, "", "", "", "")
-	tp.Resp.Header.Set("Location", u.String())
-	tp.SSOSendRequest2()
-	// pt. after signing - remember to have a before as well
-
-	if tp.Resp.StatusCode == 500 {
-		fmt.Println(strings.SplitN(string(tp.Responsebody), " ", 2)[1])
-		return
-	}
-	tp.SSOSendResponse()
-	if tp.Resp.StatusCode == 500 {
-		response := goxml.NewHtmlXp(tp.Responsebody)
-		fmt.Println(strings.Trim(response.Query1(nil, `//a[@id="errormsg"]/text()`), "\n "))
-		return
-	}
-	ApplyMods(tp.Newresponse, m["responsemods"])
-	tp.SSOSendResponse()
-	if tp.Resp.StatusCode == 500 {
-		fmt.Println(strings.Trim(strings.SplitN(string(tp.Responsebody), " ", 2)[1], "\n "))
-		return
-	}
-
-	err := ValidateSignature(tp.Firstidpmd, tp.Newresponse)
-	if err != nil {
-		fmt.Printf("signature errors: %s\n", err)
-	}
-
+	tp = browse(m, overwrite)
 	return
 }
 
 func DoRunTestBirk2(m modsset, overwrite *Testparams) (tp *Testparams) {
-	if !*dobirk2 {
+	if !dobirk2 {
 		return
 	}
-	tp = Newtp(overwrite)
-	defer xxx(tp.Trace)
-	tp.Firstidpmd = tp.Birkmd
-	ApplyMods(tp.Attributestmt, m["attributemods"])
-	tp.SSOCreateInitialRequest()
-	ApplyMods(tp.Initialrequest, m["requestmods"])
-
-	tp.SSOSendRequest()
-	if tp.Resp.StatusCode == 500 {
-		fmt.Println(strings.TrimSpace(string(tp.Responsebody)))
-		return
-	}
-	ApplyMods(tp.Newresponse, m["responsemods"])
-	tp.SSOSendResponse()
-	if tp.Resp.StatusCode == 500 {
-		fmt.Println(strings.TrimSpace(string(tp.Responsebody)))
-		return
-	}
-
-	//log.Println("Firstidpmd", tp.Firstidpmd.PP())
-	err := ValidateSignature(tp.Firstidpmd, tp.Newresponse)
-	if err != nil {
-		fmt.Printf("signature errors: %s\n", err)
-	}
-
+	tp = browse(m, overwrite)
 	return
 }
 
 // DoRunTestKrib
 func DoRunTestKrib(m modsset, overwrite *Testparams) (tp *Testparams) {
-	if *dobirk2 {
+	if dobirk2 {
 		return DoRunTestBirk2(m, overwrite)
 	}
-	if !*dokrib {
+	if !dokrib {
 		return
 	}
-	tp = Newtp(overwrite)
-	defer xxx(tp.Trace)
-	tp.Usedoubleproxy = true
-
-	ApplyMods(tp.Attributestmt, m["attributemods"])
-	tp.SSOCreateInitialRequest()
-	ApplyMods(tp.Initialrequest, m["requestmods"])
-	//    log.Println(tp.Initialrequest.Pp())
-	tp.SSOSendRequest1()
-
-	if tp.Resp.StatusCode == 500 {
-		fmt.Println(strings.TrimSpace(string(tp.Responsebody)))
-		return
-	}
-	authnrequest, relayState := gosaml.Url2SAMLRequest(tp.Resp.Location())
-	ApplyMods(authnrequest, m["birkrequestmods"])
-	u, _ := gosaml.SAMLRequest2Url(authnrequest, relayState, "", "", "")
-	tp.Resp.Header.Set("Location", u.String())
-	if tp.Resp.StatusCode == 500 {
-		fmt.Println(strings.TrimSpace(string(tp.Responsebody)))
-		return
-	}
-	tp.SSOSendRequest2()
-	if tp.Newresponse == nil {
-		log.Panic(string(tp.Responsebody))
-	}
-	ApplyMods(tp.Newresponse, m["responsemods"])
-	tp.SSOSendResponse()
-	if tp.Resp.StatusCode == 500 {
-		fmt.Println(strings.TrimSpace(string(tp.Responsebody)))
-		return
-	}
-
-	tp.SSOSendResponse()
-
-	if tp.Resp.StatusCode == 500 {
-		fmt.Println(strings.TrimSpace(string(tp.Responsebody)))
-		return
-	}
-	if tp.Logxml {
-		log.Println("final response", tp.Newresponse.PP())
-	}
-	return
-}
-
-// Html2SAMLResponse extracts the SAMLResponse from a html document
-func Html2SAMLResponse(tp *Testparams) (samlresponse *goxml.Xp) {
-	response := goxml.NewHtmlXp(tp.Responsebody)
-	samlbase64 := response.Query1(nil, `//input[@name="SAMLResponse"]/@value`)
-	samlxml, _ := base64.StdEncoding.DecodeString(samlbase64)
-	samlresponse = goxml.NewXp(samlxml)
-	if _, err := samlresponse.SchemaValidate(samlSchema); err != nil {
-		fmt.Println("SchemaError")
-	}
-
-	certs := tp.Firstidpmd.Query(nil, `//md:KeyDescriptor[@use="signing" or not(@use)]/ds:KeyInfo/ds:X509Data/ds:X509Certificate`)
-	if len(certs) == 0 {
-		fmt.Printf("Could not find signing cert for: %s", tp.Firstidpmd.Query1(nil, "/@entityID"))
-		log.Printf("Could not find signing cert for: %s", tp.Firstidpmd.Query1(nil, "/@entityID"))
-	}
-
-	_, pub, _ := gosaml.PublicKeyInfo(certs[0].NodeValue())
-	assertion := samlresponse.Query(nil, "saml:Assertion[1]")
-	if assertion == nil {
-		fmt.Println("no assertion found")
-	}
-	if err := samlresponse.VerifySignature(assertion[0].(types.Element), pub); err != nil {
-		fmt.Printf("SignatureVerificationError %s", err)
-	}
+	tp = browse(m, overwrite)
 	return
 }
 
 func ValidateSignature(md, xp *goxml.Xp) (err error) {
-
-	//no ds:Object in signatures `./md:IDPSSODescriptor/md:KeyDescriptor[@use="signing" or not(@use)]/ds:KeyInfo/ds:X509Data/ds:X509Certificate`
-	//    certificates := md.Query(nil, gosaml.IdpCertQuery)
 	certificates := md.Query(nil, `./md:IDPSSODescriptor/md:KeyDescriptor[@use="signing" or not(@use)]/ds:KeyInfo/ds:X509Data/ds:X509Certificate`)
 	if len(certificates) == 0 {
 		err = errors.New("no certificates found in metadata")
@@ -607,40 +390,7 @@ func ValidateSignature(md, xp *goxml.Xp) (err error) {
 		err = fmt.Errorf("%s neither the assertion nor the response was signed", destination)
 		return
 	}
-	verified := 0
-	signerrors := []error{}
-	for _, certificate := range certificates {
-		var key *rsa.PublicKey
-		_, key, err = gosaml.PublicKeyInfo(certificate.NodeValue())
 
-		if err != nil {
-			return
-		}
-
-		for _, signature := range signatures {
-			signerror := xp.VerifySignature(signature.(types.Element), key)
-			if signerror != nil {
-				signerrors = append(signerrors, signerror)
-			} else {
-				verified++
-			}
-		}
-	}
-	if verified == 0 || verified != len(signatures) {
-		errorstring := ""
-		delim := ""
-		for _, e := range signerrors {
-			errorstring += e.Error() + delim
-			delim = ", "
-		}
-		err = fmt.Errorf("%s unable to validate signature: %s", destination, errorstring)
-		return
-	}
+	err = gosaml.VerifySign(xp, certificates, signatures)
 	return
-}
-
-func xxx(really bool) {
-	if really {
-		log.Println()
-	}
 }
