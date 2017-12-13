@@ -360,9 +360,16 @@ func newAttributeStatement(attrs map[string][]string) (ats *goxml.Xp) {
 }
 
 // Does what the browser does follow redirects and POSTs and displays errors
-func browse(m modsset, overwrite *overwrites) (tp *Testparams) {
-    var htmlresponse *goxml.Xp
-	tp = Newtp(overwrite)
+func browse(m modsset, overwrite interface{}) (tp *Testparams) {
+	var htmlresponse *goxml.Xp
+	switch t := overwrite.(type) {
+	case *overwrites:
+		tp = Newtp(t)
+	case *Testparams:
+		tp = t
+	case nil:
+		tp = Newtp(nil)
+	}
 	stage := map[string]string{"hub": "wayf.wayf.dk", "birk": "birk.wayf.dk", "hybridbirk": "wayf.wayf.dk", "hybrid": "krib.wayf.dk"}[*do]
 
 	ApplyMods(tp.Attributestmt, m["attributemods"])
@@ -877,62 +884,28 @@ func TestUnspecifiedNameID(t *testing.T) {
 func xTestNemLogin(t *testing.T) {
 	var expected string
 	if *env != "dev" {
-	    return
+		return
 	}
 
-	//stdoutstart()
+	stdoutstart()
 	// common res for hub and birk
 	expected += `cn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     Anton Banton Cantonsen
-eduPersonAssurance urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    2
-eduPersonEntitlement urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    https://example.com/course101
-eduPersonPrimaryAffiliation urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    student
-eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    joe@this.is.not.a.valid.idp
-eduPersonScopedAffiliation urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    member@this.is.not.a.valid.idp
-    student@this.is.not.a.valid.idp
-eduPersonTargetedID urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    {{.eptid}}
-gn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    Anton Banton <SamlRequest id="abc">abc</SamlRequest>
-mail urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    joe@example.com
-norEduPersonLIN urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    123456789
-organizationName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    Orphanage - home for the homeless
-preferredLanguage urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    da
-schacCountryOfCitizenship urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    dk
-schacDateOfBirth urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    18580824
-schacHomeOrganization urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    this.is.not.a.valid.idp
-schacHomeOrganizationType urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    urn:mace:terena.org:schac:homeOrganizationType:int:other
-schacPersonalUniqueID urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    urn:mace:terena.org:schac:personalUniqueID:dk:CPR:2408586234
-schacYearOfBirth urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    1858
-sn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    Cantonsen
 `
-    gosaml.TestTime, _ = time.Parse(gosaml.XsDateTime, "2017-10-09T20:48:49.385Z")
+	gosaml.TestTime, _ = time.Parse(gosaml.XsDateTime, "2017-10-09T20:48:49.385Z")
 
-	res := browse(nil, &overwrites{"Idp": "https://nemlogin.wayf.dk", "FinalIdp": "https://login.test-nemlog-in.dk"})
+	tp := Newtp(&overwrites{"Idp": "https://nemlogin.wayf.dk", "FinalIdp": "https://login.test-nemlog-in.dk"})
+	//    cert := ioutil.ReadFile("testdata/2481cb9e1194df81050c7d22b823540b9442112c.X509Certificate")
+	//    tp.
+
+	res := browse(nil, tp)
+
 	if true || res != nil {
 		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
 	}
-	//stdoutend(t, expected)
+	stdoutend(t, expected)
 	gosaml.TestTime = time.Time{}
 }
-
-
 
 // TestFullAttributeset1 test that the full attributeset is delivered to the default test sp
 func TestFullAttributeset(t *testing.T) {
