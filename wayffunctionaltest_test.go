@@ -31,6 +31,7 @@ import (
 	"testing"
 	"text/template"
 	"time"
+  _ "net/http/pprof"
 )
 
 var (
@@ -184,16 +185,16 @@ func TestMain(m *testing.M) {
 		}
 	}
 
-	//  gosaml.Config.CertPath = "testdata/"
-	//	wayfhybrid.Md = Md
-	//	go wayfhybrid.Main()
+	//gosaml.Config.CertPath = "testdata/"
+	//wayfhybrid.Md = Md
+	//go wayfhybrid.Main()
 
 	// need non-birk, non-request.validate and non-IDPList SPs for testing ....
-	var numberOfTestSPs int
-	testSPs, numberOfTestSPs, _ = Md.Internal.(*lMDQ.MDQ).MDQFilter("/*[not(contains(@entityID, 'birk.wayf.dk/birk.php'))]/*/wayf:wayf[not(wayf:IDPList!='') and wayf:redirect.validate='']/../../md:SPSSODescriptor/..")
-	if numberOfTestSPs == 0 {
-		log.Fatal("No testSP candidates")
-	}
+    var numberOfTestSPs int
+    testSPs, numberOfTestSPs, _ = Md.Internal.(*lMDQ.MDQ).MDQFilter("/*[not(contains(@entityID, 'birk.wayf.dk/birk.php'))]/*/wayf:wayf[not(wayf:IDPList!='') and wayf:redirect.validate='']/../../md:SPSSODescriptor/..")
+    if numberOfTestSPs == 0 {
+        log.Fatal("No testSP candidates")
+    }
 	os.Exit(m.Run())
 }
 
@@ -1180,7 +1181,7 @@ func TestNoEPPNError(t *testing.T) {
 			expected = `mandatory: eduPersonPrincipalName
 `
 		case "hybrid", "hybridbirk":
-			expected = `eppn does not seem to be an eppn:
+			expected = `["cause:eppn does not seem to be an eppn: "]
 `
 		}
 	}
@@ -1197,7 +1198,7 @@ func TestEPPNScopingError(t *testing.T) {
 		case "hub", "birk":
 			expected = ``
 		case "hybrid", "hybridbirk":
-			expected = `security domain 'example.com' for eppn does not match any scopes
+			expected = `["cause:security domain 'example.com' for eppn does not match any scopes"]
 `
 		}
 	}
@@ -1214,7 +1215,7 @@ func TestNoLocalpartInEPPNError(t *testing.T) {
 		case "hub", "birk":
 			expected = ``
 		case "hybrid", "hybridbirk":
-			expected = `eppn does not seem to be an eppn: @this.is.not.a.valid.idp
+			expected = `["cause:eppn does not seem to be an eppn: @this.is.not.a.valid.idp"]
 `
 		}
 	}
@@ -1231,7 +1232,7 @@ func TestNoDomainInEPPNError(t *testing.T) {
 		case "hub", "birk":
 			expected = ``
 		case "hybrid", "hybridbirk":
-			expected = `eppn does not seem to be an eppn: joe
+			expected = `["cause:eppn does not seem to be an eppn: joe"]
 `
 		}
 	}
@@ -1319,8 +1320,8 @@ func ApplyXSW1(xp *goxml.Xp) {
 }
 
 func xTestSpeed(t *testing.T) {
-	const gorutines = 50
-	const iterations = 10
+	const gorutines = 5
+	const iterations = 1000
 	for i := 0; i < gorutines; i++ {
 		wg.Add(1)
 		go func(i int) {
