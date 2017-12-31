@@ -24,6 +24,8 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	//	"runtime"
+	_ "net/http/pprof"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -31,7 +33,6 @@ import (
 	"testing"
 	"text/template"
 	"time"
-  _ "net/http/pprof"
 )
 
 var (
@@ -47,24 +48,24 @@ type (
 		Cookiejar                                          map[string]map[string]*http.Cookie
 		IdpentityID                                        string
 		DSIdpentityID                                      string
-		Resolv                                             map[string]string
-		Initialrequest                                     *goxml.Xp
-		Newresponse                                        *goxml.Xp
-		Resp                                               *http.Response
-		Responsebody                                       []byte
-		Err                                                error
-		Trace, Logxml, Encryptresponse                     bool
-		Privatekey                                         string
-		Privatekeypw                                       string
-		Certificate                                        string
-		Hashalgorithm                                      string
-		Attributestmt                                      *goxml.Xp
-		Hub                                                bool
-		Birk                                               bool
-		Hybrid                                             bool
-		Hybridbirk                                         bool
-		Env                                                string
-		ConsentGiven                                       bool
+		//		Resolv                                             map[string]string
+		Initialrequest                 *goxml.Xp
+		Newresponse                    *goxml.Xp
+		Resp                           *http.Response
+		Responsebody                   []byte
+		Err                            error
+		Trace, Logxml, Encryptresponse bool
+		Privatekey                     string
+		Privatekeypw                   string
+		Certificate                    string
+		Hashalgorithm                  string
+		Attributestmt                  *goxml.Xp
+		Hub                            bool
+		Birk                           bool
+		Hybrid                         bool
+		Hybridbirk                     bool
+		Env                            string
+		ConsentGiven                   bool
 	}
 
 	overwrites map[string]interface{}
@@ -163,7 +164,10 @@ var (
 			"pnameid": "WAYF-DK-a7379f69e957371dc49350a27b704093c0b813f1",
 		},
 	}
-	wg sync.WaitGroup
+	resolv map[string]string
+	wg     sync.WaitGroup
+	tr     *http.Transport
+	client *http.Client
 )
 
 func TestMain(m *testing.M) {
@@ -270,7 +274,6 @@ func Newtp(overwrite *overwrites) (tp *Testparams) {
 	tp.Birk = dobirk || dohybridbirk
 	tp.Hybridbirk = dohybridbirk
 	tp.Hybrid = dohybrid
-	tp.Resolv = map[string]string{"wayf.wayf.dk": *hub, "birk.wayf.dk": *birk, "krib.wayf.dk": *hybrid, "ds.wayf.dk": "localhost"}
 	tp.Trace = *trace
 	tp.Logxml = *logxml
 	tp.Hashalgorithm = "sha1"
@@ -311,17 +314,15 @@ func Newtp(overwrite *overwrites) (tp *Testparams) {
 
 	tp.Attributestmt = newAttributeStatement(testAttributes)
 
-	certs := tp.Idpmd.Query(nil, `//md:KeyDescriptor[@use="signing" or not(@use)]/ds:KeyInfo/ds:X509Data/ds:X509Certificate`)
-	if len(certs) == 0 {
+	cert := tp.Idpmd.Query1(nil, `//md:KeyDescriptor[@use="signing" or not(@use)]/ds:KeyInfo/ds:X509Data/ds:X509Certificate`)
+	if cert == "" {
 		fmt.Errorf("Could not find signing cert for: %s", tp.Idpmd.Query1(nil, "/@entityID"))
 	}
-
-	keyname, _, err := gosaml.PublicKeyInfo(certs[0].NodeValue())
+	tp.Certificate = cert
+	keyname, _, err := gosaml.PublicKeyInfo(cert)
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	tp.Certificate = certs[0].NodeValue()
 	pk, err := ioutil.ReadFile("/etc/ssl/wayf/signing/" + keyname + ".key")
 	if err != nil {
 		log.Fatal(err)
@@ -398,7 +399,6 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 	redirects := 7
 	method := "GET"
 	body := ""
-	//q.Q("tp", tp)
 	for {
 		redirects--
 		if redirects == 0 { // if we go wild ...
@@ -435,7 +435,16 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 		}
 
 		//q.Q("u", method, redirects, u)
-		tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Resolv[u.Host], method, body, tp.Cookiejar)
+		tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, method, body, tp.Cookiejar)
+		if tp.Err != nil {
+			switch tp.Err.(type) {
+			case *url.Error:
+				log.Panic()
+			default:
+				q.Q(tp.Err)
+				return nil
+			}
+		}
 		htmlresponse = goxml.NewHtmlXp(tp.Responsebody)
 		// delete stuff that just  takes too much space when debugging
 		tp.Resp.TLS = nil
@@ -521,12 +530,12 @@ func (tp *Testparams) newresponse(u *url.URL) {
 
 		if tp.Encryptresponse {
 
-			certs := tp.Hubspmd.Query(nil, `//md:KeyDescriptor[@use="encryption" or not(@use)]/ds:KeyInfo/ds:X509Data/ds:X509Certificate`)
-			if len(certs) == 0 {
+			cert := tp.Hubspmd.Query1(nil, `//md:KeyDescriptor[@use="encryption" or not(@use)]/ds:KeyInfo/ds:X509Data/ds:X509Certificate`)
+			if cert == "" {
 				fmt.Errorf("Could not find encryption cert for: %s", tp.Hubspmd.Query1(nil, "/@entityID"))
 			}
 
-			_, publickey, _ := gosaml.PublicKeyInfo(certs[0].NodeValue())
+			_, publickey, _ := gosaml.PublicKeyInfo(cert)
 
 			if tp.Env == "xdev" {
 				cert, err := ioutil.ReadFile(*testcertpath)
@@ -552,23 +561,7 @@ func (tp *Testparams) newresponse(u *url.URL) {
 // SendRequest sends a http request - GET or POST using the supplied url, server, method and cookies
 // It updates the cookies and returns a http.Response and a posssible response body and error
 // The server parameter contains the dns name of the actual server, which should respond to the host part of the url
-func (tp *Testparams) sendRequest(url *url.URL, server, method, body string, cookies map[string]map[string]*http.Cookie) (resp *http.Response, responsebody []byte, err error) {
-	if server == "" {
-		server = url.Host
-	}
-	server += ":443"
-
-	tr := &http.Transport{
-		TLSClientConfig:    &tls.Config{InsecureSkipVerify: true},
-		Dial:               func(network, addr string) (net.Conn, error) { return net.Dial("tcp", server) },
-		DisableCompression: true,
-	}
-
-	client := &http.Client{
-		Transport:     tr,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error { return errors.New("redirect-not-allowed") },
-	}
-
+func (tp *Testparams) sendRequest(url *url.URL, method, body string, cookies map[string]map[string]*http.Cookie) (resp *http.Response, responsebody []byte, err error) {
 	var payload io.Reader
 	if method == "POST" {
 		payload = strings.NewReader(body)
@@ -593,7 +586,8 @@ func (tp *Testparams) sendRequest(url *url.URL, server, method, body string, coo
 	if err != nil && !strings.HasSuffix(err.Error(), "redirect-not-allowed") {
 		// we need to do the redirect ourselves so a self inflicted redirect "error" is not an error
 		debug.PrintStack()
-		log.Fatalln("client.do", err)
+		return
+		// log.Fatalln("client.do", err)
 	}
 
 	location, _ := resp.Location()
@@ -642,8 +636,6 @@ func (tp *Testparams) sendRequest(url *url.URL, server, method, body string, coo
 //     if the value starts with "+ " the the node content is prefixed with the rest of the value
 //     Otherwise the node content is replaced with the value
 func ApplyMods(xp *goxml.Xp, m mods) {
-	//log.Printf("applyMOds %+v\n", m)
-	//log.Println(xp.X2s())
 	for _, change := range m {
 		if change.function != nil {
 			change.function(xp)
@@ -653,21 +645,20 @@ func ApplyMods(xp *goxml.Xp, m mods) {
 				//log.Printf("unlink: %s\n", change.path)
 				parent, _ := element.ParentNode()
 				parent.RemoveChild(element)
+				defer element.Free()
 			}
 		} else if strings.HasPrefix(change.value, "+ ") {
-			for _, element := range xp.Query(nil, change.path) {
-				value := element.NodeValue()
-				element.SetNodeValue(strings.Fields(change.value)[1] + value)
+			for _, value := range xp.QueryMulti(nil, change.path) {
+				xp.QueryDashP(nil, change.path, strings.Fields(change.value)[1]+value, nil)
 			}
 		} else {
 			xp.QueryDashP(nil, change.path, change.value, nil)
 		}
 	}
-	//log.Println(xp.X2s())
 }
 
 func ValidateSignature(md, xp *goxml.Xp) (err error) {
-	certificates := md.Query(nil, `./md:IDPSSODescriptor/md:KeyDescriptor[@use="signing" or not(@use)]/ds:KeyInfo/ds:X509Data/ds:X509Certificate`)
+	certificates := md.QueryMulti(nil, `./md:IDPSSODescriptor/md:KeyDescriptor[@use="signing" or not(@use)]/ds:KeyInfo/ds:X509Data/ds:X509Certificate`)
 	if len(certificates) == 0 {
 		err = errors.New("no certificates found in metadata")
 		return
@@ -741,10 +732,10 @@ func xTestMultipleSPs(t *testing.T) {
 
 	spquery := "/*/*/@entityID"
 
-	eIDs := testSPs.Query(nil, spquery)
+	eIDs := testSPs.QueryMulti(nil, spquery)
 
 	for _, eID := range eIDs {
-		md, _ := Md.Internal.MDQ(eID.NodeValue())
+		md, _ := Md.Internal.MDQ(eID)
 		if md == nil {
 			log.Fatalln("No SP found for testing multiple SPs: ", eID)
 		}
@@ -754,7 +745,7 @@ func xTestMultipleSPs(t *testing.T) {
 		if md.Query1(nil, "./md:Extensions/wayf:wayf/wayf:feds[.='WAYF']") == "" {
 			continue
 		}
-		fmt.Println("eID", eID.NodeValue())
+		fmt.Println("eID", eID)
 		browse(nil, &overwrites{"Spmd": md})
 	}
 
@@ -1026,7 +1017,7 @@ func TestAccessForNonIntersectingAdHocFederations(t *testing.T) {
 func TestSignErrorModifiedContent(t *testing.T) {
 	var expected string
 	stdoutstart()
-	m := modsset{"responsemods": mods{mod{"//saml:Assertion/saml:Issuer", "+ 1234", nil}}}
+	m := modsset{"responsemods": mods{mod{"./saml:Assertion/saml:Issuer", "+ 1234", nil}}}
 	res := browse(m, nil)
 	if res != nil {
 		switch *do {
@@ -1047,7 +1038,7 @@ func TestSignErrorModifiedContent(t *testing.T) {
 func TestSignErrorModifiedSignature(t *testing.T) {
 	var expected string
 	stdoutstart()
-	m := modsset{"responsemods": mods{mod{"//saml:Assertion//ds:SignatureValue", "+ 1234", nil}}}
+	m := modsset{"responsemods": mods{mod{"./saml:Assertion/ds:Signature/ds:SignatureValue", "+ 1234", nil}}}
 	res := browse(m, nil)
 	if res != nil {
 		switch *do {
@@ -1326,6 +1317,7 @@ func ApplyXSW1(xp *goxml.Xp) {
 	log.Println(goxml.NewXpFromNode(signature).PP())
 	parent, _ := signature.(types.Element).ParentNode()
 	parent.RemoveChild(signature)
+	defer signature.Free()
 	log.Println(goxml.NewXpFromNode(clonedAssertion).PP())
 	newSignature := xp.Query(assertion, "ds:Signature[1]")[0]
 	newSignature.AddChild(clonedAssertion)
@@ -1333,9 +1325,9 @@ func ApplyXSW1(xp *goxml.Xp) {
 	log.Println(xp.PP())
 }
 
-func xTestSpeed(t *testing.T) {
-	const gorutines = 5
-	const iterations = 1000
+func TestSpeed(t *testing.T) {
+	const gorutines = 50
+	const iterations = 100000
 	for i := 0; i < gorutines; i++ {
 		wg.Add(1)
 		go func(i int) {
@@ -1344,6 +1336,8 @@ func xTestSpeed(t *testing.T) {
 				spmd, _ := Md.Internal.MDQ("https://metadata.wayf.dk/PHPh")
 				browse(nil, &overwrites{"Spmd": spmd})
 				log.Println(i, j, time.Since(starttime).Seconds())
+				//runtime.GC()
+				//time.Sleep(200 * time.Millisecond)
 			}
 			wg.Done()
 		}(i)
