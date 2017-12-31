@@ -195,6 +195,20 @@ func TestMain(m *testing.M) {
     if numberOfTestSPs == 0 {
         log.Fatal("No testSP candidates")
     }
+
+	resolv = map[string]string{"wayf.wayf.dk:443": *hub + ":443", "birk.wayf.dk:443": *birk + ":443", "krib.wayf.dk:443": *hybrid + ":443", "ds.wayf.dk:443": "localhost:443"}
+
+	tr = &http.Transport{
+		TLSClientConfig:    &tls.Config{InsecureSkipVerify: true},
+		Dial:               func(network, addr string) (net.Conn, error) { return net.Dial(network, resolv[addr]) },
+		DisableCompression: true,
+	}
+
+	client = &http.Client{
+		Transport:     tr,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error { return errors.New("redirect-not-allowed") },
+	}
+
 	os.Exit(m.Run())
 }
 
