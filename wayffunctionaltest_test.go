@@ -753,6 +753,26 @@ func xTestMultipleSPs(t *testing.T) {
 	stdoutend(t, expected)
 }
 
+// TestDigestMethodSha256 checks SPs with Digest Method SHA256
+func TestDigestMethodSha256(t *testing.T) {
+	stdoutstart()
+	expected := ""
+	// Find an entity with Digest Method sha 256.
+	//entityID := testSPs.Query1(nil, "/*/*/*/wayf:wayf[wayf:consent.disable='1']/../../md:SPSSODescriptor/../@entityID")
+	entityID := testSPs.Query1(nil, "./md:Extensions/wayf:wayf/wayf:SigningMethod")
+	fmt.Printf("entityID = ",entityID)
+	if entityID != "" {
+		entitymd, _ := Md.Internal.MDQ(entityID)
+		tp := browse(nil, &overwrites{"Spmd": entitymd})
+		if tp != nil {
+			fmt.Printf("consent given %t\n",tp)
+		}
+	} else {
+		expected += "Digest Method Sha256 not found in any of the SPs."
+	}
+	stdoutend(t, expected)
+}
+
 // TestConsentDisabled tests that a SP with consent.disabled set actually bypasses the consent form
 func TestConsentDisabled(t *testing.T) {
 	stdoutstart()
