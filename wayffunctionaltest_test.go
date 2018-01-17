@@ -179,7 +179,7 @@ func TestMain(m *testing.M) {
 	dohybrid = *do == "hybrid"
 	log.Printf("hub: %q backend: %q birk: %q backend: %q %t %t %t %t\n", *hub, *hubbe, *birk, *birkbe, dohub, dobirk, dohybridbirk, dohybrid)
 
-	Md.Hub = &lMDQ.MDQ{Path: "file:" + mdsources[*env]["hub"] + "?mode=ro", Table: "WAYF_HUB_PUBLIC"}
+	Md.Hub = &lMDQ.MDQ{Path: "file:" + mdsources[*env]["hub"] + "?mode=ro", Table: "HYBRID_HUB"}
 	Md.Internal = &lMDQ.MDQ{Path: "file:" + mdsources[*env]["internal"] + "?mode=ro", Table: "HYBRID_INTERNAL"}
 	Md.ExternalIdP = &lMDQ.MDQ{Path: "file:" + mdsources[*env]["externalIdP"] + "?mode=ro", Table: "HYBRID_EXTERNAL_IDP"}
 	Md.ExternalSP = &lMDQ.MDQ{Path: "file:" + mdsources[*env]["externalSP"] + "?mode=ro", Table: "HYBRID_EXTERNAL_SP"}
@@ -755,7 +755,7 @@ func xTestMultipleSPs(t *testing.T) {
 }
 
 // TestDigestMethodSha256 checks SPs with Digest Method SHA256
-func TestDigestMethodSha256(t *testing.T) {
+func xTestDigestMethodSha256(t *testing.T) {
 	stdoutstart()
 	expected := ""
 	// Find an entity with Digest Method sha 256.
@@ -858,6 +858,8 @@ func TestTransientNameID(t *testing.T) {
 	entitymd, _ := Md.Internal.MDQ(eID)
 	var tp *Testparams
 	entityID := ""
+//	m := modsset{"responsemods": mods{mod{"./saml:Assertion/saml:Issuer", "+ 1234", nil}}}
+//	m := modsset{"responsemods": mods{mod{"./saml:Assertion/ds:Signature/ds:SignatureValue", "+ 1234", nil}}}
 	tp = browse(nil, &overwrites{"Spmd": entitymd, "Hashalgorithm": "sha256", "ElementsToSign": []string{"saml:Assertion[1]", "../samlp:Response[1]"}})
 	if tp != nil {
 		samlresponse, _ := gosaml.Html2SAMLResponse(tp.Responsebody)
@@ -1346,7 +1348,7 @@ func ApplyXSW1(xp *goxml.Xp) {
 	log.Println(xp.PP())
 }
 
-func TestSpeed(t *testing.T) {
+func xTestSpeed(t *testing.T) {
 	const gorutines = 50
 	const iterations = 100000
 	for i := 0; i < gorutines; i++ {
