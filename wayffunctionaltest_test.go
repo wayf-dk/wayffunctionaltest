@@ -774,6 +774,34 @@ func TestDigestMethodSha256(t *testing.T) {
 	stdoutend(t, expected)
 }
 
+// TestDigestMethodSha256_1 tests that the Method 256 is the same from both the hub and BIRK
+func TestDigestMethodSha256_1(t *testing.T) {
+	stdoutstart()
+	// We need to get at the wayf:wayf elements - thus we got directly to the feed !!!
+	//	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
+	expected := ""
+	//entityID := testSPs.Query1(nil, "/*/*/md:SPSSODescriptor/md:NameIDFormat[.='urn:oasis:names:tc:SAML:2.0:nameid-format:persistent']/../md:AttributeConsumingService/md:RequestedAttribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10' or @Name='eduPersonTargetedID']/../../../@entityID")
+	entityID := testSPs.Query1(nil, "/*/*/md:Extensions/wayf:wayf/wayf:SigningMethod/../../../@entityID")
+	entitymd, _ := Md.Internal.MDQ(entityID)
+	if entitymd == nil {
+		log.Fatalln("no SP found for testing Digest Method256")
+	}
+
+	tp := browse(nil, &overwrites{"Spmd": entitymd})
+	if tp != nil {
+		samlresponse, _ := gosaml.Html2SAMLResponse(tp.Responsebody)
+		entityID := entitymd.Query1(nil, "@entityID")
+		/*nameidformat := samlresponse.Query1(nil, "//saml:NameID/@Format")
+		nameid := samlresponse.Query1(nil, "//saml:NameID")
+		audience := samlresponse.Query1(nil, "//saml:Audience")
+		spnamequalifier := samlresponse.Query1(nil, "//saml:NameID/@SPNameQualifier")
+		eptid := samlresponse.Query1(nil, "//saml:Attribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10' or @Name='eduPersonTargetedID']/saml:AttributeValue")
+		fmt.Printf("%s %s %s %s %s\n", nameidformat, nameid, eptid, audience, spnamequalifier)
+		expected += `urn:oasis:names:tc:SAML:2.0:nameid-format:persistent {{.pnameid}} {{.eptid}} ` + entityID + ` ` + entityID + "\n"*/
+	}
+	stdoutend(t, expected)
+}
+
 // TestConsentDisabled tests that a SP with consent.disabled set actually bypasses the consent form
 func TestConsentDisabled(t *testing.T) {
 	stdoutstart()
