@@ -66,6 +66,7 @@ type (
 		Hybridbirk                     bool
 		Env                            string
 		ConsentGiven                   bool
+		ElementsToSign                 []string
 	}
 
 	overwrites map[string]interface{}
@@ -277,6 +278,7 @@ func Newtp(overwrite *overwrites) (tp *Testparams) {
 	tp.Trace = *trace
 	tp.Logxml = *logxml
 	tp.Hashalgorithm = "sha1"
+	tp.ElementsToSign = []string{"saml:Assertion[1]"}
 
 	tp.Idp = "https://this.is.not.a.valid.idp"
 	tp.FinalIdp = tp.Idp
@@ -516,20 +518,19 @@ func (tp *Testparams) newresponse(u *url.URL) {
 		// create a response
 		tp.Newresponse = gosaml.NewResponse(tp.Idpmd, tp.Hubspmd, authnrequest, tp.Attributestmt)
 
-		// and sign it
-		assertion := tp.Newresponse.Query(nil, "saml:Assertion[1]")[0]
-
-		// use cert to calculate key name
-		before := tp.Newresponse.Query(assertion, "*[2]")[0]
-		err := tp.Newresponse.Sign(assertion.(types.Element), before.(types.Element), []byte(tp.Privatekey), []byte(tp.Privatekeypw), tp.Certificate, tp.Hashalgorithm)
-		if err != nil {
-			log.Fatal(err)
-		}
+        for _, xpath := range tp.ElementsToSign {
+            element := tp.Newresponse.Query(nil, xpath)[0]
+            before := tp.Newresponse.Query(element, "*[2]")[0]
+            err := tp.Newresponse.Sign(element.(types.Element), before.(types.Element), []byte(tp.Privatekey), []byte(tp.Privatekeypw), tp.Certificate, tp.Hashalgorithm)
+            if err != nil {
+                log.Fatal(err)
+            }
+        }
 
 		tp.logxml(tp.Newresponse)
 
 		if tp.Encryptresponse {
-
+    		assertion := tp.Newresponse.Query(nil, "saml:Assertion[1]")[0]
 			cert := tp.Hubspmd.Query1(nil, `//md:KeyDescriptor[@use="encryption" or not(@use)]/ds:KeyInfo/ds:X509Data/ds:X509Certificate`)
 			if cert == "" {
 				fmt.Errorf("Could not find encryption cert for: %s", tp.Hubspmd.Query1(nil, "/@entityID"))
@@ -759,7 +760,7 @@ func TestDigestMethodSha256(t *testing.T) {
 	expected := ""
 	// Find an entity with Digest Method sha 256.
 	//entityID := testSPs.Query1(nil, "/*/*/*/wayf:wayf[wayf:consent.disable='1']/../../md:SPSSODescriptor/../@entityID")
-	entityID := testSPs.Query1(nil, "./md:Extensions/wayf:wayf/wayf:SigningMethod")
+	entityID := testSPs.Query1(nil, "/*/*/md:Extensions/wayf:wayf/wayf:SigningMethod/../../../@entityID")
 	fmt.Printf("entityID = ",entityID)
 	if entityID != "" {
 		entitymd, _ := Md.Internal.MDQ(entityID)
@@ -857,7 +858,7 @@ func TestTransientNameID(t *testing.T) {
 	entitymd, _ := Md.Internal.MDQ(eID)
 	var tp *Testparams
 	entityID := ""
-	tp = browse(nil, &overwrites{"Spmd": entitymd})
+	tp = browse(nil, &overwrites{"Spmd": entitymd, "Hashalgorithm": "sha256", "ElementsToSign": []string{"saml:Assertion[1]", "../samlp:Response[1]"}})
 	if tp != nil {
 		samlresponse, _ := gosaml.Html2SAMLResponse(tp.Responsebody)
 		entityID = entitymd.Query1(nil, "@entityID")
