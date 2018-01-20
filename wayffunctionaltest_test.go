@@ -177,7 +177,7 @@ func TestMain(m *testing.M) {
 	dobirk = *do == "birk"
 	dohybridbirk = *do == "hybridbirk"
 	dohybrid = *do == "hybrid"
-	log.Printf("hub: %q backend: %q birk: %q backend: %q %t %t %t %t\n", *hub, *hubbe, *birk, *birkbe, dohub, dobirk, dohybridbirk, dohybrid)
+	log.Printf("do: %q hub: %q backend: %q birk: %q backend: %q hybrid: %q backend: %q\n", *do, *hub, *hubbe, *birk, *birkbe, *hybrid, *hybrid)
 
 	Md.Hub = &lMDQ.MDQ{Path: "file:" + mdsources[*env]["hub"] + "?mode=ro", Table: "HYBRID_HUB"}
 	Md.Internal = &lMDQ.MDQ{Path: "file:" + mdsources[*env]["internal"] + "?mode=ro", Table: "HYBRID_INTERNAL"}
@@ -407,12 +407,13 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 			return
 		}
 		if method == "POST" {
+		    tp.logxml(tp.Newresponse)
 			acs := tp.Newresponse.Query1(nil, "@Destination")
 			issuer, _ := url.Parse(tp.Newresponse.Query1(nil, "./saml:Issuer"))
-			if (tp.Hybridbirk || tp.Hybrid) && issuer.Host == "birk.wayf.dk" {
+			if (tp.Hybridbirk || tp.Hybrid) && map[string]bool{"birk.wayf.dk": true, "xwayf.wayf.dk": true}[issuer.Host] {
 				// in the new hybrid consent is made in js - and the flag for bypassing it is in js - sad!
-				tp.ConsentGiven = !strings.Contains(htmlresponse.PP(), `,"NoConsent":true,`)
-				//			    q.Q(noconsent, tp, htmlresponse.PP())
+				tp.ConsentGiven = strings.Contains(htmlresponse.PP(), `,"NoConsent":false`)
+			    //q.Q(tp.ConsentGiven, htmlresponse.PP())
 			}
 			u, _ = url.Parse(acs)
 			//q.Q(u, finalDestination)
@@ -527,7 +528,7 @@ func (tp *Testparams) newresponse(u *url.URL) {
             }
         }
 
-		tp.logxml(tp.Newresponse)
+		//tp.logxml(tp.Newresponse)
 
 		if tp.Encryptresponse {
     		assertion := tp.Newresponse.Query(nil, "saml:Assertion[1]")[0]
@@ -736,6 +737,7 @@ func xTestMultipleSPs(t *testing.T) {
 	eIDs := testSPs.QueryMulti(nil, spquery)
 
 	for _, eID := range eIDs {
+		log.Println("eID", eID)
 		md, _ := Md.Internal.MDQ(eID)
 		if md == nil {
 			log.Fatalln("No SP found for testing multiple SPs: ", eID)
@@ -746,7 +748,7 @@ func xTestMultipleSPs(t *testing.T) {
 		if md.Query1(nil, "./md:Extensions/wayf:wayf/wayf:feds[.='WAYF']") == "" {
 			continue
 		}
-		fmt.Println("eID", eID)
+		log.Println("eID", eID)
 		browse(nil, &overwrites{"Spmd": md})
 	}
 
@@ -754,31 +756,28 @@ func xTestMultipleSPs(t *testing.T) {
 	stdoutend(t, expected)
 }
 
-// TestDigestMethodSha256 checks SPs with Digest Method SHA256
-func xTestDigestMethodSha256(t *testing.T) {
+// TestDigestMethodSha1 tests that the Signature|DigestMethod is what the sp asks for
+func TestDigestMethodSendingSha1(t *testing.T) {
 	stdoutstart()
 	expected := ""
-	// Find an entity with Digest Method sha 256.
-	//entityID := testSPs.Query1(nil, "/*/*/*/wayf:wayf[wayf:consent.disable='1']/../../md:SPSSODescriptor/../@entityID")
-	entityID := testSPs.Query1(nil, "/*/*/md:Extensions/wayf:wayf/wayf:SigningMethod/../../../@entityID")
-	fmt.Printf("entityID = ",entityID)
-	if entityID != "" {
-		entitymd, _ := Md.Internal.MDQ(entityID)
-		tp := browse(nil, &overwrites{"Spmd": entitymd})
-		if tp != nil {
-			fmt.Printf("consent given %t\n",tp)
-		}
-	} else {
-		expected += "Digest Method Sha256 not found in any of the SPs."
+	entitymd, _ := Md.Internal.MDQ("https://metadata.wayf.dk/PHPh")
+
+	tp := browse(nil, &overwrites{"Spmd": entitymd})
+	if tp != nil {
+		samlresponse, _ := gosaml.Html2SAMLResponse(tp.Responsebody)
+		signatureMethod := samlresponse.Query1(nil, "//ds:SignatureMethod/@Algorithm")
+		digestMethod := samlresponse.Query1(nil, "//ds:DigestMethod/@Algorithm")
+		fmt.Printf("%s\n%s\n", signatureMethod, digestMethod)
+		expected += `http://www.w3.org/2000/09/xmldsig#rsa-sha1
+http://www.w3.org/2000/09/xmldsig#sha1
+`
 	}
 	stdoutend(t, expected)
 }
 
-// TestDigestMethodSha256_1 tests that the Method 256 is the same from both the hub and BIRK
-func TestDigestMethodSha256_1(t *testing.T) {
+// TestDigestMethodSha256_1 tests that the Signature|DigestMethod is what the sp asks for
+func TestDigestMethodSendingSha256(t *testing.T) {
 	stdoutstart()
-	// We need to get at the wayf:wayf elements - thus we got directly to the feed !!!
-	//	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
 	expected := ""
 	entitymd, _ := Md.Internal.MDQ("https://wayfsp.wayf.dk")
 
@@ -795,11 +794,47 @@ http://www.w3.org/2001/04/xmlenc#sha256
 	stdoutend(t, expected)
 }
 
+// TestDigestMethodSha1 tests that the Signature|DigestMethod is what the sp asks for
+func TestDigestMethodReceivingSha1(t *testing.T) {
+	stdoutstart()
+	expected := ""
+	entitymd, _ := Md.Internal.MDQ("https://metadata.wayf.dk/PHPh")
+
+	tp := browse(nil, &overwrites{"Spmd": entitymd })
+	if tp != nil {
+		samlresponse, _ := gosaml.Html2SAMLResponse(tp.Responsebody)
+		signatureMethod := samlresponse.Query1(nil, "//ds:SignatureMethod/@Algorithm")
+		digestMethod := samlresponse.Query1(nil, "//ds:DigestMethod/@Algorithm")
+		fmt.Printf("%s\n%s\n", signatureMethod, digestMethod)
+		expected += `http://www.w3.org/2000/09/xmldsig#rsa-sha1
+http://www.w3.org/2000/09/xmldsig#sha1
+`
+	}
+	stdoutend(t, expected)
+}
+
+// TestDigestMethodSha256_1 tests that the Signature|DigestMethod is what the sp asks for
+func TestDigestMethodReceivingSha256(t *testing.T) {
+	stdoutstart()
+	expected := ""
+	entitymd, _ := Md.Internal.MDQ("https://wayfsp.wayf.dk")
+
+	tp := browse(nil, &overwrites{"Spmd": entitymd, "Hashalgorithm": "sha256", })
+	if tp != nil {
+		samlresponse, _ := gosaml.Html2SAMLResponse(tp.Responsebody)
+		signatureMethod := samlresponse.Query1(nil, "//ds:SignatureMethod/@Algorithm")
+		digestMethod := samlresponse.Query1(nil, "//ds:DigestMethod/@Algorithm")
+		fmt.Printf("%s\n%s\n", signatureMethod, digestMethod)
+		expected += `http://www.w3.org/2001/04/xmldsig-more#rsa-sha256
+http://www.w3.org/2001/04/xmlenc#sha256
+`
+	}
+	stdoutend(t, expected)
+}
+
 // TestConsentDisabled tests that a SP with consent.disabled set actually bypasses the consent form
 func TestConsentDisabled(t *testing.T) {
 	stdoutstart()
-	// We need to get at the wayf:wayf elements - thus we got directly to the feed !!!
-	//	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
 	expected := ""
 	// find an entity with consent disabled, but no a birk entity as we know that using ssp does not understand the wayf namespace yet ...
 	entityID := testSPs.Query1(nil, "/*/*/*/wayf:wayf[wayf:consent.disable='1']/../../md:SPSSODescriptor/../@entityID")
@@ -821,8 +856,6 @@ func TestConsentDisabled(t *testing.T) {
 // TestConsentDisabled tests that a SP with consent.disabled set actually bypasses the consent form
 func TestConsentGiven(t *testing.T) {
 	stdoutstart()
-	// We need to get at the wayf:wayf elements - thus we got directly to the feed !!!
-	//	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
 	expected := ""
 	// find an entity with consent disabled, but no a birk entity as we know that using ssp does not understand the wayf namespace yet ...
 	entityID := testSPs.Query1(nil, "/*/*/*/wayf:wayf[not(wayf:consent.disable='1')]/../../md:SPSSODescriptor/../@entityID")
@@ -843,15 +876,15 @@ func TestConsentGiven(t *testing.T) {
 
 // TestPersistentNameID tests that the persistent nameID (and eptid) is the same from both the hub and BIRK
 func xTestPersistentNameID(t *testing.T) {
-	stdoutstart()
-	// We need to get at the wayf:wayf elements - thus we got directly to the feed !!!
-	//	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
 	expected := ""
+	stdoutstart()
+    defer stdoutend(t, expected)
 	entityID := testSPs.Query1(nil, "/*/*/md:SPSSODescriptor/md:NameIDFormat[.='urn:oasis:names:tc:SAML:2.0:nameid-format:persistent']/../md:AttributeConsumingService/md:RequestedAttribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10' or @Name='eduPersonTargetedID']/../../../@entityID")
 	log.Println("ent", entityID)
 	entitymd, _ := Md.Internal.MDQ(entityID)
 	if entitymd == nil {
-		log.Fatalln("no SP found for testing TestPersistentNameID")
+	    return
+		//log.Fatalln("no SP found for testing TestPersistentNameID")
 	}
 
 	tp := browse(nil, &overwrites{"Spmd": entitymd})
@@ -866,22 +899,19 @@ func xTestPersistentNameID(t *testing.T) {
 		fmt.Printf("%s %s %s %s %s\n", nameidformat, nameid, eptid, audience, spnamequalifier)
 		expected += `urn:oasis:names:tc:SAML:2.0:nameid-format:persistent {{.pnameid}} {{.eptid}} ` + entityID + ` ` + entityID + "\n"
 	}
-	stdoutend(t, expected)
 }
 
 // TestTransientNameID tests that the transient nameID (and eptid) is the same from both the hub and BIRK
 func TestTransientNameID(t *testing.T) {
 	stdoutstart()
-	// We need to get at the wayf:wayf elements - thus we got directly to the feed !!!
-	//	spmd := newMD("https://phph.wayf.dk/raw?type=feed&fed=wayf-fed")
 	var expected string
-	eID := testSPs.Query1(nil, "/*/*/md:SPSSODescriptor/md:NameIDFormat[.='urn:oasis:names:tc:SAML:2.0:nameid-format:transient']/../../@entityID")
+	eID := testSPs.Query1(nil, "/*/*/*/wayf:wayf/wayf:feds[.='WAYF']/../../../md:SPSSODescriptor/md:NameIDFormat[.='urn:oasis:names:tc:SAML:2.0:nameid-format:transient']/../../@entityID")
 	entitymd, _ := Md.Internal.MDQ(eID)
 	var tp *Testparams
 	entityID := ""
 //	m := modsset{"responsemods": mods{mod{"./saml:Assertion/saml:Issuer", "+ 1234", nil}}}
 //	m := modsset{"responsemods": mods{mod{"./saml:Assertion/ds:Signature/ds:SignatureValue", "+ 1234", nil}}}
-	tp = browse(nil, &overwrites{"Spmd": entitymd, "Hashalgorithm": "sha256", "ElementsToSign": []string{"saml:Assertion[1]", "../samlp:Response[1]"}})
+	tp = browse(nil, &overwrites{"Spmd": entitymd })
 	if tp != nil {
 		samlresponse, _ := gosaml.Html2SAMLResponse(tp.Responsebody)
 		entityID = entitymd.Query1(nil, "@entityID")
@@ -890,17 +920,7 @@ func TestTransientNameID(t *testing.T) {
 		audience := samlresponse.Query1(nil, "//saml:Audience")
 		spnamequalifier := samlresponse.Query1(nil, "//saml:NameID/@SPNameQualifier")
 		fmt.Printf("%s %t %s %s\n", nameidformat, nameid != "", audience, spnamequalifier)
-		switch *do {
-		case "hub", "hybrid", "hybridbirk":
-			expected = `urn:oasis:names:tc:SAML:2.0:nameid-format:transient true ` + entityID + ` ` + entityID + "\n"
-		case "birk":
-			reg := regexp.MustCompile("^(https?)://(.*)")
-			birkEntityID := reg.ReplaceAllString(entityID, "${1}://birk.wayf.dk/birk.php/${2}-proxy")
-			if !reg.MatchString(birkEntityID) { // urn format
-				birkEntityID = "urn:oid:1.3.6.1.4.1.39153:42:" + birkEntityID
-			}
-			expected = `urn:oasis:names:tc:SAML:2.0:nameid-format:transient true ` + entityID + ` ` + birkEntityID + "\n"
-		}
+		expected = `urn:oasis:names:tc:SAML:2.0:nameid-format:transient true ` + entityID + ` ` + entityID + "\n"
 	}
 	stdoutend(t, expected)
 }
