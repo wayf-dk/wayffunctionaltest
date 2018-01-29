@@ -195,11 +195,11 @@ func TestMain(m *testing.M) {
 	//go wayfhybrid.Main()
 
 	// need non-birk, non-request.validate and non-IDPList SPs for testing ....
-    var numberOfTestSPs int
-    testSPs, numberOfTestSPs, _ = Md.Internal.(*lMDQ.MDQ).MDQFilter("/*[not(contains(@entityID, 'birk.wayf.dk/birk.php'))]/*/wayf:wayf[not(wayf:IDPList!='') and wayf:redirect.validate='']/../../md:SPSSODescriptor/..")
-    if numberOfTestSPs == 0 {
-        log.Fatal("No testSP candidates")
-    }
+	var numberOfTestSPs int
+	testSPs, numberOfTestSPs, _ = Md.Internal.(*lMDQ.MDQ).MDQFilter("/*[not(contains(@entityID, 'birk.wayf.dk/birk.php'))]/*/wayf:wayf[not(wayf:IDPList!='') and wayf:redirect.validate='']/../../md:SPSSODescriptor/..")
+	if numberOfTestSPs == 0 {
+		log.Fatal("No testSP candidates")
+	}
 
 	resolv = map[string]string{"wayf.wayf.dk:443": *hub + ":443", "birk.wayf.dk:443": *birk + ":443", "krib.wayf.dk:443": *hybrid + ":443", "ds.wayf.dk:443": "localhost:443"}
 
@@ -325,6 +325,7 @@ func Newtp(overwrite *overwrites) (tp *Testparams) {
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	pk, err := ioutil.ReadFile("/etc/ssl/wayf/signing/" + keyname + ".key")
 	if err != nil {
 		log.Fatal(err)
@@ -407,13 +408,13 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 			return
 		}
 		if method == "POST" {
-		    tp.logxml(tp.Newresponse)
+			tp.logxml(tp.Newresponse)
 			acs := tp.Newresponse.Query1(nil, "@Destination")
 			issuer, _ := url.Parse(tp.Newresponse.Query1(nil, "./saml:Issuer"))
 			if (tp.Hybridbirk || tp.Hybrid) && map[string]bool{"birk.wayf.dk": true, "xwayf.wayf.dk": true}[issuer.Host] {
 				// in the new hybrid consent is made in js - and the flag for bypassing it is in js - sad!
 				tp.ConsentGiven = strings.Contains(htmlresponse.PP(), `,"NoConsent":false`)
-			    //q.Q(tp.ConsentGiven, htmlresponse.PP())
+				//q.Q(tp.ConsentGiven, htmlresponse.PP())
 			}
 			u, _ = url.Parse(acs)
 			//q.Q(u, finalDestination)
@@ -519,19 +520,20 @@ func (tp *Testparams) newresponse(u *url.URL) {
 		// create a response
 		tp.Newresponse = gosaml.NewResponse(tp.Idpmd, tp.Hubspmd, authnrequest, tp.Attributestmt)
 
-        for _, xpath := range tp.ElementsToSign {
-            element := tp.Newresponse.Query(nil, xpath)[0]
-            before := tp.Newresponse.Query(element, "*[2]")[0]
-            err := tp.Newresponse.Sign(element.(types.Element), before.(types.Element), []byte(tp.Privatekey), []byte(tp.Privatekeypw), tp.Certificate, tp.Hashalgorithm)
-            if err != nil {
-                log.Fatal(err)
-            }
-        }
+		for _, xpath := range tp.ElementsToSign {
+			element := tp.Newresponse.Query(nil, xpath)[0]
+			before := tp.Newresponse.Query(element, "*[2]")[0]
+			err := tp.Newresponse.Sign(element.(types.Element), before.(types.Element), []byte(tp.Privatekey), []byte(tp.Privatekeypw), tp.Certificate, tp.Hashalgorithm)
+			if err != nil {
+				q.Q("Newresponse", err.(goxml.Werror).Stack(2))
+				log.Fatal(err)
+			}
+		}
 
 		//tp.logxml(tp.Newresponse)
 
 		if tp.Encryptresponse {
-    		assertion := tp.Newresponse.Query(nil, "saml:Assertion[1]")[0]
+			assertion := tp.Newresponse.Query(nil, "saml:Assertion[1]")[0]
 			cert := tp.Hubspmd.Query1(nil, `//md:KeyDescriptor[@use="encryption" or not(@use)]/ds:KeyInfo/ds:X509Data/ds:X509Certificate`)
 			if cert == "" {
 				fmt.Errorf("Could not find encryption cert for: %s", tp.Hubspmd.Query1(nil, "/@entityID"))
@@ -588,8 +590,8 @@ func (tp *Testparams) sendRequest(url *url.URL, method, body string, cookies map
 	if err != nil && !strings.HasSuffix(err.Error(), "redirect-not-allowed") {
 		// we need to do the redirect ourselves so a self inflicted redirect "error" is not an error
 		debug.PrintStack()
-		return
-		// log.Fatalln("client.do", err)
+		//return
+		log.Fatalln("client.do", err)
 	}
 
 	location, _ := resp.Location()
@@ -780,6 +782,7 @@ func TestDigestMethodSendingSha256(t *testing.T) {
 	stdoutstart()
 	expected := ""
 	entitymd, _ := Md.Internal.MDQ("https://wayfsp.wayf.dk")
+	//entitymd, _ := Md.Internal.MDQ("https://ucsyd.papirfly.com/AuthServices")
 
 	tp := browse(nil, &overwrites{"Spmd": entitymd})
 	if tp != nil {
@@ -800,7 +803,7 @@ func TestDigestMethodReceivingSha1(t *testing.T) {
 	expected := ""
 	entitymd, _ := Md.Internal.MDQ("https://metadata.wayf.dk/PHPh")
 
-	tp := browse(nil, &overwrites{"Spmd": entitymd })
+	tp := browse(nil, &overwrites{"Spmd": entitymd})
 	if tp != nil {
 		samlresponse, _ := gosaml.Html2SAMLResponse(tp.Responsebody)
 		signatureMethod := samlresponse.Query1(nil, "//ds:SignatureMethod/@Algorithm")
@@ -818,8 +821,9 @@ func TestDigestMethodReceivingSha256(t *testing.T) {
 	stdoutstart()
 	expected := ""
 	entitymd, _ := Md.Internal.MDQ("https://wayfsp.wayf.dk")
+	//entitymd, _ := Md.Internal.MDQ("https://ucsyd.papirfly.com/AuthServices")
 
-	tp := browse(nil, &overwrites{"Spmd": entitymd, "Hashalgorithm": "sha256", })
+	tp := browse(nil, &overwrites{"Spmd": entitymd, "Hashalgorithm": "sha256"})
 	if tp != nil {
 		samlresponse, _ := gosaml.Html2SAMLResponse(tp.Responsebody)
 		signatureMethod := samlresponse.Query1(nil, "//ds:SignatureMethod/@Algorithm")
@@ -878,12 +882,12 @@ func TestConsentGiven(t *testing.T) {
 func xTestPersistentNameID(t *testing.T) {
 	expected := ""
 	stdoutstart()
-    defer stdoutend(t, expected)
+	defer stdoutend(t, expected)
 	entityID := testSPs.Query1(nil, "/*/*/md:SPSSODescriptor/md:NameIDFormat[.='urn:oasis:names:tc:SAML:2.0:nameid-format:persistent']/../md:AttributeConsumingService/md:RequestedAttribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10' or @Name='eduPersonTargetedID']/../../../@entityID")
 	log.Println("ent", entityID)
 	entitymd, _ := Md.Internal.MDQ(entityID)
 	if entitymd == nil {
-	    return
+		return
 		//log.Fatalln("no SP found for testing TestPersistentNameID")
 	}
 
@@ -909,9 +913,9 @@ func TestTransientNameID(t *testing.T) {
 	entitymd, _ := Md.Internal.MDQ(eID)
 	var tp *Testparams
 	entityID := ""
-//	m := modsset{"responsemods": mods{mod{"./saml:Assertion/saml:Issuer", "+ 1234", nil}}}
-//	m := modsset{"responsemods": mods{mod{"./saml:Assertion/ds:Signature/ds:SignatureValue", "+ 1234", nil}}}
-	tp = browse(nil, &overwrites{"Spmd": entitymd })
+	//	m := modsset{"responsemods": mods{mod{"./saml:Assertion/saml:Issuer", "+ 1234", nil}}}
+	//	m := modsset{"responsemods": mods{mod{"./saml:Assertion/ds:Signature/ds:SignatureValue", "+ 1234", nil}}}
+	tp = browse(nil, &overwrites{"Spmd": entitymd})
 	if tp != nil {
 		samlresponse, _ := gosaml.Html2SAMLResponse(tp.Responsebody)
 		entityID = entitymd.Query1(nil, "@entityID")
@@ -1135,7 +1139,7 @@ func TestNoSignatureError(t *testing.T) {
 			expected = `Error verifying signature on incoming SAMLResponse
 `
 		case "hybrid", "hybridbirk":
-			expected = `No signatures found
+			expected = `["err:no signatures found"]
 `
 		}
 	}
@@ -1319,7 +1323,7 @@ func TestUnknownSPError(t *testing.T) {
 			expected = `Metadata not found for entity: https://www.example.com/unknownentity
 `
 		case "birk":
-			expected = `Metadata for entity: https://www.example.com/unknownentity not found
+			expected = `Issuer 'https://www.example.com/unknownentity' is not known or is not of the correct type (SP/IDP)
 `
 		case "hybrid":
 			expected = `["cause:sql: no rows in result set","err:Metadata not found","key:https://www.example.com/unknownentity","table:HYBRID_INTERNAL"]
@@ -1348,7 +1352,7 @@ func TestUnknownIDPError(t *testing.T) {
 	case "birk":
 		m := modsset{"requestmods": mods{mod{"./@Destination", "https://birk.wayf.dk/birk.php/www.example.com/unknownentity", nil}}}
 		if browse(m, nil) != nil {
-			expected = `Metadata for entity: https://birk.wayf.dk/birk.php/www.example.com/unknownentity not found
+			expected = `Could not get needed metadata about endpoint: https://birk.wayf.dk/birk.php/www.example.com/unknownentity
 `
 		}
 	}
