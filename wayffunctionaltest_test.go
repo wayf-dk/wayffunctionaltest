@@ -414,7 +414,7 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 			if (tp.Hybridbirk || tp.Hybrid) && map[string]bool{"birk.wayf.dk": true, "xwayf.wayf.dk": true}[issuer.Host] {
 				// in the new hybrid consent is made in js - and the flag for bypassing it is in js - sad!
 				tp.ConsentGiven = strings.Contains(htmlresponse.PP(), `,"NoConsent":false`)
-				//q.Q(tp.ConsentGiven, htmlresponse.PP())
+//				q.Q(tp.ConsentGiven, htmlresponse.PP())
 			}
 			u, _ = url.Parse(acs)
 			//q.Q(u, finalDestination)
@@ -525,7 +525,7 @@ func (tp *Testparams) newresponse(u *url.URL) {
 			before := tp.Newresponse.Query(element, "*[2]")[0]
 			err := tp.Newresponse.Sign(element.(types.Element), before.(types.Element), []byte(tp.Privatekey), []byte(tp.Privatekeypw), tp.Certificate, tp.Hashalgorithm)
 			if err != nil {
-				q.Q("Newresponse", err.(goxml.Werror).Stack(2))
+//				q.Q("Newresponse", err.(goxml.Werror).Stack(2))
 				log.Fatal(err)
 			}
 		}
@@ -781,7 +781,7 @@ http://www.w3.org/2000/09/xmldsig#sha1
 func TestDigestMethodSendingSha256(t *testing.T) {
 	stdoutstart()
 	expected := ""
-	entitymd, _ := Md.Internal.MDQ("https://wayfsp.wayf.dk")
+	entitymd, _ := Md.Internal.MDQ("https://wayfsp2.wayf.dk")
 	//entitymd, _ := Md.Internal.MDQ("https://ucsyd.papirfly.com/AuthServices")
 
 	tp := browse(nil, &overwrites{"Spmd": entitymd})
@@ -820,7 +820,7 @@ http://www.w3.org/2000/09/xmldsig#sha1
 func TestDigestMethodReceivingSha256(t *testing.T) {
 	stdoutstart()
 	expected := ""
-	entitymd, _ := Md.Internal.MDQ("https://wayfsp.wayf.dk")
+	entitymd, _ := Md.Internal.MDQ("https://wayfsp2.wayf.dk")
 	//entitymd, _ := Md.Internal.MDQ("https://ucsyd.papirfly.com/AuthServices")
 
 	tp := browse(nil, &overwrites{"Spmd": entitymd, "Hashalgorithm": "sha256"})
@@ -997,6 +997,7 @@ eduPersonPrimaryAffiliation urn:oasis:names:tc:SAML:2.0:attrname-format:basic
 eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     joe@this.is.not.a.valid.idp
 eduPersonScopedAffiliation urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    alum@this.is.not.a.valid.idp
     member@this.is.not.a.valid.idp
     student@this.is.not.a.valid.idp
 eduPersonTargetedID urn:oasis:names:tc:SAML:2.0:attrname-format:basic
@@ -1254,7 +1255,7 @@ func TestNoEPPNError(t *testing.T) {
 			expected = `mandatory: eduPersonPrincipalName
 `
 		case "hybrid", "hybridbirk":
-			expected = `["cause:eppn does not seem to be an eppn: "]
+			expected = `["cause:not a scoped value: "]
 `
 		}
 	}
@@ -1271,7 +1272,7 @@ func TestEPPNScopingError(t *testing.T) {
 		case "hub", "birk":
 			expected = ``
 		case "hybrid", "hybridbirk":
-			expected = `["cause:security domain 'example.com' for eppn does not match any scopes"]
+			expected = `["cause:security domain 'example.com' does not match any scopes"]
 `
 		}
 	}
@@ -1288,7 +1289,7 @@ func TestNoLocalpartInEPPNError(t *testing.T) {
 		case "hub", "birk":
 			expected = ``
 		case "hybrid", "hybridbirk":
-			expected = `["cause:eppn does not seem to be an eppn: @this.is.not.a.valid.idp"]
+			expected = `["cause:not a scoped value: @this.is.not.a.valid.idp"]
 `
 		}
 	}
@@ -1305,7 +1306,7 @@ func TestNoDomainInEPPNError(t *testing.T) {
 		case "hub", "birk":
 			expected = ``
 		case "hybrid", "hybridbirk":
-			expected = `["cause:eppn does not seem to be an eppn: joe"]
+			expected = `["cause:not a scoped value: joe"]
 `
 		}
 	}
