@@ -1104,6 +1104,27 @@ func TestSignErrorModifiedContent(t *testing.T) {
 	stdoutend(t, expected)
 }
 
+func TestSamlVulnerability(t *testing.T) {
+	var expected string
+	stdoutstart()
+	m := modsset{"responsemods": mods{mod{"./saml:Assertion/saml:NameID/Subject", "+<!-- and a comment --->", nil}}}
+	res := browse(m, nil)
+	if res != nil {
+		switch *do {
+ 		case "hub":
+			expected = `Reference validation failed
+`
+		case "birk":
+			expected = `Error verifying signature on incoming SAMLResponse
+`
+		case "hybrid", "hybridbirk":
+			expected = `unable to validate signature: digest mismatch
+`
+		}
+	}
+	stdoutend(t, expected)
+}
+
 func TestSignErrorModifiedSignature(t *testing.T) {
 	var expected string
 	stdoutstart()
