@@ -414,7 +414,7 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 			if (tp.Hybridbirk || tp.Hybrid) && map[string]bool{"birk.wayf.dk": true, "xwayf.wayf.dk": true}[issuer.Host] {
 				// in the new hybrid consent is made in js - and the flag for bypassing it is in js - sad!
 				tp.ConsentGiven = strings.Contains(htmlresponse.PP(), `,"NoConsent":false`)
-//				q.Q(tp.ConsentGiven, htmlresponse.PP())
+				//				q.Q(tp.ConsentGiven, htmlresponse.PP())
 			}
 			u, _ = url.Parse(acs)
 			//q.Q(u, finalDestination)
@@ -525,7 +525,7 @@ func (tp *Testparams) newresponse(u *url.URL) {
 			before := tp.Newresponse.Query(element, "*[2]")[0]
 			err := tp.Newresponse.Sign(element.(types.Element), before.(types.Element), []byte(tp.Privatekey), []byte(tp.Privatekeypw), tp.Certificate, tp.Hashalgorithm)
 			if err != nil {
-//				q.Q("Newresponse", err.(goxml.Werror).Stack(2))
+				//				q.Q("Newresponse", err.(goxml.Werror).Stack(2))
 				log.Fatal(err)
 			}
 		}
@@ -653,12 +653,17 @@ func ApplyMods(xp *goxml.Xp, m mods) {
 			}
 		} else if strings.HasPrefix(change.value, "+ ") {
 			for _, value := range xp.QueryMulti(nil, change.path) {
-				xp.QueryDashP(nil, change.path, strings.Fields(change.value)[1]+value, nil)
+				xp.QueryDashP(nil, change.path, change.value[2:]+value, nil)
+			}
+		} else if strings.HasPrefix(change.value, "- ") {
+			for _, value := range xp.QueryMulti(nil, change.path) {
+				xp.QueryDashP(nil, change.path, value+change.value[2:], nil)
 			}
 		} else {
 			xp.QueryDashP(nil, change.path, change.value, nil)
 		}
 	}
+	q.Q(string(xp.PP()))
 }
 
 func ValidateSignature(md, xp *goxml.Xp) (err error) {
@@ -1092,6 +1097,27 @@ func TestSignErrorModifiedContent(t *testing.T) {
 		switch *do {
 		case "hub":
 			expected = `Reference validation failed
+`
+		case "birk":
+			expected = `Error verifying signature on incoming SAMLResponse
+`
+		case "hybrid", "hybridbirk":
+			expected = `unable to validate signature: digest mismatch
+`
+		}
+	}
+	stdoutend(t, expected)
+}
+
+func TestSamlVulnerability(t *testing.T) {
+	var expected string
+	stdoutstart()
+	m := modsset{"responsemods": mods{mod{"./saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name=\"eduPersonPrincipalName\"]/saml:AttributeValue", "- <!--and.a.fake.domain--->", nil}}}
+	res := browse(m, nil)
+	if res != nil {
+		switch *do {
+		case "hub":
+			expected = `xReference validation failed
 `
 		case "birk":
 			expected = `Error verifying signature on incoming SAMLResponse
