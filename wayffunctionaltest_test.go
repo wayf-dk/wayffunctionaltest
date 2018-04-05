@@ -1112,11 +1112,11 @@ func TestSignErrorModifiedContent(t *testing.T) {
 func TestSamlVulnerability(t *testing.T) {
 	var expected string
 	stdoutstart()
-    m := modsset{"responsemods": mods{mod{"./saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name=\"eduPersonPrincipalName\"]/saml:AttributeValue", "- <!--and.a.fake.domain--->", nil}}}
-    res := browse(m, nil)
+	m := modsset{"responsemods": mods{mod{"./saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name=\"eduPersonPrincipalName\"]/saml:AttributeValue", "- <!--and.a.fake.domain--->", nil}}}
+	res := browse(m, nil)
 	if res != nil {
 		switch *do {
- 		case "hub":
+		case "hub":
 			expected = `Reference validation failed
 `
 		case "birk":
