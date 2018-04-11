@@ -390,7 +390,7 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 	case nil:
 		tp = Newtp(nil)
 	}
-	stage := map[string]string{"hub": "wayf.wayf.dk", "birk": "birk.wayf.dk", "hybridbirk": "wayf.wayf.dk", "hybrid": "krib.wayf.dk"}[*do]
+	stage := map[string]string{"hub": "wayf.wayf.dk", "birk": "birk.wayf.dk", "hybridbirk": "wayf.wayf.dk", "hybrid": "wayf.wayf.dk"}[*do]
 
 	ApplyMods(tp.Attributestmt, m["attributemods"])
 	tp.Initialrequest, _ = gosaml.NewAuthnRequest(nil, tp.Spmd, tp.Firstidpmd, tp.IdpentityID)
@@ -412,10 +412,10 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 			tp.logxml(tp.Newresponse)
 			acs := tp.Newresponse.Query1(nil, "@Destination")
 			issuer, _ := url.Parse(tp.Newresponse.Query1(nil, "./saml:Issuer"))
-			if (tp.Hybridbirk || tp.Hybrid) && map[string]bool{"birk.wayf.dk": true, "xwayf.wayf.dk": true}[issuer.Host] {
+			if (tp.Hybridbirk || tp.Hybrid) && map[string]bool{"birk.wayf.dk": true, "wayf.wayf.dk": true}[issuer.Host] {
 				// in the new hybrid consent is made in js - and the flag for bypassing it is in js - sad!
 				tp.ConsentGiven = strings.Contains(htmlresponse.PP(), `,"NoConsent":false`)
-				//				q.Q(tp.ConsentGiven, htmlresponse.PP())
+				//q.Q(tp.ConsentGiven, htmlresponse.PP())
 			}
 			u, _ = url.Parse(acs)
 			//q.Q(u, finalDestination)
@@ -1107,7 +1107,7 @@ func TestSignErrorModifiedContent(t *testing.T) {
 			expected = `Error verifying signature on incoming SAMLResponse
 `
 		case "hybrid", "hybridbirk":
-			expected = `unable to validate signature: digest mismatch
+			expected = `["cause:digest mismatch","err:unable to validate signature"]
 `
 		}
 	}
@@ -1128,7 +1128,7 @@ func TestSamlVulnerability(t *testing.T) {
 			expected = `Error verifying signature on incoming SAMLResponse
 `
 		case "hybrid", "hybridbirk":
-			expected = `unable to validate signature: digest mismatch
+			expected = `["cause:digest mismatch","err:unable to validate signature"]
 `
 		}
 	}
@@ -1149,7 +1149,7 @@ func TestSignErrorModifiedSignature(t *testing.T) {
 			expected = `Error verifying signature on incoming SAMLResponse
 `
 		case "hybrid", "hybridbirk":
-			expected = `unable to validate signature: crypto/rsa: verification error
+			expected = `["cause:crypto/rsa: verification error","err:unable to validate signature"]
 `
 		}
 	}
@@ -1223,7 +1223,7 @@ mYqIGJZzLM/wk1u/CG52i+zDOiYbeiYNZc7qhIFU9ueinr88YZo=
 			expected = `Unable to validate Signature
 `
 		case "hybrid", "hybridbirk":
-			expected = `unable to validate signature: crypto/rsa: verification error
+			expected = `["cause:crypto/rsa: verification error","err:unable to validate signature"]
 `
 		}
 	}
@@ -1357,11 +1357,7 @@ func TestUnknownSPError(t *testing.T) {
 		case "birk":
 			expected = `Issuer 'https://www.example.com/unknownentity' is not known or is not of the correct type (SP/IDP)
 `
-		case "hybrid":
-			expected = `["cause:Metadata not found","err:Metadata not found","key:https://www.example.com/unknownentity","table:HYBRID_INTERNAL"]
-
-`
-		case "hybridbirk":
+		case "hybrid", "hybridbirk":
 			expected = `["cause:Metadata not found","err:Metadata not found","key:https://www.example.com/unknownentity","table:HYBRID_INTERNAL"]
 `
 		}
