@@ -586,7 +586,6 @@ func (tp *Testparams) sendRequest(url *url.URL, method, body string, cookies map
 	}
 
 	req.Header.Add("Host", host)
-
 	resp, err = client.Do(req)
 	if err != nil && !strings.HasSuffix(err.Error(), "redirect-not-allowed") {
 		// we need to do the redirect ourselves so a self inflicted redirect "error" is not an error
@@ -1014,7 +1013,7 @@ eduPersonScopedAffiliation urn:oasis:names:tc:SAML:2.0:attrname-format:basic
 eduPersonTargetedID urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     {{.eptid}}
 gn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
-    Anton Banton <SamlRequest id="abc">abc</SamlRequest>
+    Anton Banton &lt;SamlRequest id=&#34;abc&#34;&gt;abc&lt;/SamlRequest&gt;
 mail urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     joe@example.com
 norEduPersonLIN urn:oasis:names:tc:SAML:2.0:attrname-format:basic
@@ -1172,7 +1171,7 @@ func TestNoSignatureError(t *testing.T) {
 			expected = `Error verifying signature on incoming SAMLResponse
 `
 		case "hybrid", "hybridbirk":
-			expected = `["err:no signatures found"]
+			expected = `["cause:encryption error"]
 `
 		}
 	}
@@ -1359,10 +1358,11 @@ func TestUnknownSPError(t *testing.T) {
 			expected = `Issuer 'https://www.example.com/unknownentity' is not known or is not of the correct type (SP/IDP)
 `
 		case "hybrid":
-			expected = `["cause:sql: no rows in result set","err:Metadata not found","key:https://www.example.com/unknownentity","table:HYBRID_INTERNAL"]
+			expected = `["cause:Metadata not found","err:Metadata not found","key:https://www.example.com/unknownentity","table:HYBRID_INTERNAL"]
+
 `
 		case "hybridbirk":
-			expected = `["cause:sql: no rows in result set","err:Metadata not found","key:https://www.example.com/unknownentity","table:HYBRID_EXTERNAL_SP"]
+			expected = `["cause:Metadata not found","err:Metadata not found","key:https://www.example.com/unknownentity","table:HYBRID_INTERNAL"]
 `
 		}
 	}
