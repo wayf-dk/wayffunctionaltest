@@ -664,7 +664,7 @@ func ApplyMods(xp *goxml.Xp, m mods) {
 			xp.QueryDashP(nil, change.path, change.value, nil)
 		}
 	}
-	q.Q(string(xp.PP()))
+	//q.Q(string(xp.PP()))
 }
 
 func ValidateSignature(md, xp *goxml.Xp) (err error) {
@@ -681,7 +681,12 @@ func ValidateSignature(md, xp *goxml.Xp) (err error) {
 		return
 	}
 
-	err = gosaml.VerifySign(xp, certificates, signatures)
+    for _, signature := range signatures {
+	    err = gosaml.VerifySign(xp, certificates, signature)
+	    if err != nil {
+	        return
+	    }
+	}
 	return
 }
 
