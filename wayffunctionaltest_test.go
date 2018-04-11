@@ -135,6 +135,7 @@ var (
 	birk         = flag.String("birk", "birk.wayf.dk", "the hostname for the BIRK server to be tested")
 	birkbe       = flag.String("birkbe", "", "the birk backend server")
 	hybrid       = flag.String("hybrid", "krib.wayf.dk", "the krib.wayf.dk server")
+	ds           = flag.String("ds", "ds.wayf.dk", "the discovery server")
 	trace        = flag.Bool("xtrace", false, "trace the request/response flow")
 	logxml       = flag.Bool("logxml", false, "dump requests/responses in xml")
 	env          = flag.String("env", "prod", "which environment to test dev, hybrid, prod - if not dev")
@@ -201,7 +202,7 @@ func TestMain(m *testing.M) {
 		log.Fatal("No testSP candidates")
 	}
 
-	resolv = map[string]string{"wayf.wayf.dk:443": *hub + ":443", "birk.wayf.dk:443": *birk + ":443", "krib.wayf.dk:443": *hybrid + ":443", "ds.wayf.dk:443": "localhost:443"}
+	resolv = map[string]string{"wayf.wayf.dk:443": *hub + ":443", "birk.wayf.dk:443": *birk + ":443", "krib.wayf.dk:443": *hybrid + ":443", "ds.wayf.dk:443": *ds + ":443"}
 
 	tr = &http.Transport{
 		TLSClientConfig:    &tls.Config{InsecureSkipVerify: true},
