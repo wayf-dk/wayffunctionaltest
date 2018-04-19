@@ -680,11 +680,11 @@ func ValidateSignature(md, xp *goxml.Xp) (err error) {
 		return
 	}
 
-    for _, signature := range signatures {
-	    err = gosaml.VerifySign(xp, certificates, signature)
-	    if err != nil {
-	        return
-	    }
+	for _, signature := range signatures {
+		err = gosaml.VerifySign(xp, certificates, signature)
+		if err != nil {
+			return
+		}
 	}
 	return
 }
