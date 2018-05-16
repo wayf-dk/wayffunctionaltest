@@ -393,7 +393,7 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 	stage := map[string]string{"hub": "wayf.wayf.dk", "birk": "birk.wayf.dk", "hybridbirk": "wayf.wayf.dk", "hybrid": "wayf.wayf.dk"}[*do]
 
 	ApplyMods(tp.Attributestmt, m["attributemods"])
-	tp.Initialrequest, _ = gosaml.NewAuthnRequest(nil, tp.Spmd, tp.Firstidpmd, tp.IdpentityID)
+	tp.Initialrequest, _ = gosaml.NewAuthnRequest(nil, tp.Spmd, tp.Firstidpmd, []string{tp.IdpentityID})
 	ApplyMods(tp.Initialrequest, m["requestmods"])
 	u, _ := gosaml.SAMLRequest2Url(tp.Initialrequest, "", "", "", "")
 
@@ -414,8 +414,7 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 			issuer, _ := url.Parse(tp.Newresponse.Query1(nil, "./saml:Issuer"))
 			if (tp.Hybridbirk || tp.Hybrid) && map[string]bool{"birk.wayf.dk": true, "wayf.wayf.dk": true}[issuer.Host] {
 				// in the new hybrid consent is made in js - and the flag for bypassing it is in js - sad!
-				tp.ConsentGiven = strings.Contains(htmlresponse.PP(), `,"NoConsent":false`)
-				//q.Q(tp.ConsentGiven, htmlresponse.PP())
+				tp.ConsentGiven = strings.Contains(htmlresponse.PP(), `,"BypassConfirmation":false`)
 			}
 			u, _ = url.Parse(acs)
 			//q.Q(u, finalDestination)
