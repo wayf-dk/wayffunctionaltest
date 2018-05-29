@@ -310,10 +310,10 @@ func Newtp(overwrite *overwrites) (tp *Testparams) {
 	}
 
 	tp.Cookiejar = make(map[string]map[string]*http.Cookie)
-	tp.Cookiejar["wayf.wayf.dk"] = make(map[string]*http.Cookie)
-	tp.Cookiejar["wayf.wayf.dk"]["wayfid"] = &http.Cookie{Name: "wayfid", Value: *hubbe}
-	tp.Cookiejar["birk.wayf.dk"] = make(map[string]*http.Cookie)
-	tp.Cookiejar["birk.wayf.dk"]["birkid"] = &http.Cookie{Name: "birkid", Value: *birkbe}
+	tp.Cookiejar["wayf.dk"] = make(map[string]*http.Cookie)
+	tp.Cookiejar["wayf.dk"]["wayfid"] = &http.Cookie{Name: "wayfid", Value: *hubbe}
+	//tp.Cookiejar["wayf.dk"] = make(map[string]*http.Cookie)
+	tp.Cookiejar["wayf.dk"]["birkid"] = &http.Cookie{Name: "birkid", Value: *birkbe}
 
 	tp.Attributestmt = newAttributeStatement(testAttributes)
 
