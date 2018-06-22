@@ -1285,7 +1285,7 @@ func TestNoEPPNError(t *testing.T) {
 			expected = `mandatory: eduPersonPrincipalName
 `
 		case "hybrid", "hybridbirk":
-			expected = `["cause:not a scoped value: "]
+			expected = `["cause:Mandatory 'eduPersonPrincipalName' attribute missing"]
 `
 		}
 	}
