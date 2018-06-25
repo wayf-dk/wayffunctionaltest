@@ -327,7 +327,7 @@ func Newtp(overwrite *overwrites) (tp *Testparams) {
 		log.Fatal(err)
 	}
 
-	pk, err := ioutil.ReadFile("/etc/ssl/wayf/signing/" + keyname + ".key")
+	pk, err := ioutil.ReadFile("signing/" + keyname + ".key")
 	if err != nil {
 		log.Fatal(err)
 	}
