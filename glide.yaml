@@ -1,7 +1,0 @@
-package: wayffunctionaltest
-import:
-- package: github.com/wayf-dk/gosaml
-- package: github.com/wayf-dk/gohybrid
-- package: github.com/wayf-dk/lMDQ
-- package: github.com/aryann/difflib
-- package: github.com/mattn/go-sqlite3
