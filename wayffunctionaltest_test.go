@@ -846,6 +846,30 @@ http://www.w3.org/2001/04/xmlenc#sha256
 }
 
 // TestConsentDisabled tests that a SP with consent.disabled set actually bypasses the consent form
+func TestSigningResponse(t *testing.T) {
+	stdoutstart()
+	expected := ""
+	// find an entity with consent disabled, but no a birk entity as we know that using ssp does not understand the wayf namespace yet ...
+	entityID := testSPs.Query1(nil, "/*/*/*/wayf:wayf[wayf:saml20.sign.response='1']/../../md:SPSSODescriptor/../@entityID")
+	if entityID != "" {
+		entitymd, _ := Md.Internal.MDQ(entityID)
+
+		tp := browse(nil, &overwrites{"Spmd": entitymd})
+        if tp != nil {
+            samlresponse, _ := gosaml.Html2SAMLResponse(tp.Responsebody)
+            responseSignatures := len(samlresponse.QueryMulti(nil, "/samlp:Response/ds:Signature"))
+            assertionSignatures := len(samlresponse.QueryMulti(nil, "/samlp:Response/saml:Assertion/ds:Signature"))
+            fmt.Printf("Response signature = %d Assertion signatures = %d\n",  responseSignatures, assertionSignatures )
+            expected = `Response signature = 1 Assertion signatures = 0
+`
+        }
+	} else {
+		expected += "no entity suited for test found"
+	}
+	stdoutend(t, expected)
+}
+
+// TestConsentDisabled tests that a SP with consent.disabled set actually bypasses the consent form
 func TestConsentDisabled(t *testing.T) {
 	stdoutstart()
 	expected := ""
