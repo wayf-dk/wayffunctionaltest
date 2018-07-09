@@ -1,4 +1,5 @@
-# gosaml
+[![Go Report Card](https://goreportcard.com/badge/github.com/wayf-dk/wayffunctionaltest)](https://goreportcard.com/report/github.com/wayf-dk/wayffunctionaltest)
+# Wayffunctionaltest
 
 Wayffunctionaltest is a library for making programs that tests the WAYF hub + the BIRK mass-IdP proxy.
 
