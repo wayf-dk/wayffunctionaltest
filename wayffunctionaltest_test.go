@@ -588,8 +588,8 @@ func (tp *Testparams) sendRequest(url *url.URL, method, body string, cookies map
 	if err != nil && !strings.HasSuffix(err.Error(), "redirect-not-allowed") {
 		// we need to do the redirect ourselves so a self inflicted redirect "error" is not an error
 		debug.PrintStack()
-		//return
-		log.Fatalln("client.do", err)
+		return
+		//log.Fatalln("client.do", err)
 	}
 
 	location, _ := resp.Location()
