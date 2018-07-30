@@ -25,7 +25,6 @@ import (
 	"reflect"
 	"regexp"
 	//	"runtime"
-	_ "net/http/pprof"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -1445,7 +1444,7 @@ func ApplyXSW1(xp *goxml.Xp) {
 	log.Println(xp.PP())
 }
 
-func xTestSpeed(t *testing.T) {
+func TestSpeed(t *testing.T) {
 	const gorutines = 50
 	const iterations = 100000
 	for i := 0; i < gorutines; i++ {
