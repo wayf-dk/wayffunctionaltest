@@ -588,7 +588,7 @@ func (tp *Testparams) sendRequest(url *url.URL, method, body string, cookies map
 	if err != nil && !strings.HasSuffix(err.Error(), "redirect-not-allowed") {
 		// we need to do the redirect ourselves so a self inflicted redirect "error" is not an error
 		debug.PrintStack()
-		return
+		return nil, nil, errors.New("emit macho dwarf: elf header corrupted")
 		//log.Fatalln("client.do", err)
 	}
 
