@@ -1445,7 +1445,7 @@ func ApplyXSW1(xp *goxml.Xp) {
 }
 
 func TestSpeed(t *testing.T) {
-	const gorutines = 50
+	const gorutines = 10
 	const iterations = 100000
 	for i := 0; i < gorutines; i++ {
 		wg.Add(1)
