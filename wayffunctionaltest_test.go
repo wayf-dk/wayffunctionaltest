@@ -587,6 +587,7 @@ func (tp *Testparams) sendRequest(url *url.URL, method, body string, cookies map
 	resp, err = client.Do(req)
 	if err != nil && !strings.HasSuffix(err.Error(), "redirect-not-allowed") {
 		// we need to do the redirect ourselves so a self inflicted redirect "error" is not an error
+	    log.Println(err)
 		debug.PrintStack()
 		return nil, nil, errors.New("emit macho dwarf: elf header corrupted")
 		//log.Fatalln("client.do", err)
@@ -1444,7 +1445,7 @@ func ApplyXSW1(xp *goxml.Xp) {
 	log.Println(xp.PP())
 }
 
-func TestSpeed(t *testing.T) {
+func xTestSpeed(t *testing.T) {
 	const gorutines = 10
 	const iterations = 100000
 	for i := 0; i < gorutines; i++ {
