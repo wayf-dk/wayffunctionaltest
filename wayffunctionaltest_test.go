@@ -1076,8 +1076,12 @@ func TestFullAttributesetSP2(t *testing.T) {
 	if res != nil {
 		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
 	}
-	expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     joe@this.is.not.a.valid.idp
+eduPersonTargetedID urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    WAYF-DK-493ee01e49107fed7c4b89622d8087bc5064cc15
+mail urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    joe@example.com
 `
 	stdoutend(t, expected)
 }
@@ -1091,8 +1095,12 @@ func TestFullEncryptedAttributeset1(t *testing.T) {
 	if res != nil {
 		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
 	}
-	expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     joe@this.is.not.a.valid.idp
+eduPersonTargetedID urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    WAYF-DK-493ee01e49107fed7c4b89622d8087bc5064cc15
+mail urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    joe@example.com
 `
 	stdoutend(t, expected)
 }
