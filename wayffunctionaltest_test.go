@@ -587,7 +587,7 @@ func (tp *Testparams) sendRequest(url *url.URL, method, body string, cookies map
 	resp, err = client.Do(req)
 	if err != nil && !strings.HasSuffix(err.Error(), "redirect-not-allowed") {
 		// we need to do the redirect ourselves so a self inflicted redirect "error" is not an error
-	    log.Println(err)
+		log.Println(err)
 		debug.PrintStack()
 		return nil, nil, errors.New("emit macho dwarf: elf header corrupted")
 		//log.Fatalln("client.do", err)
@@ -855,14 +855,14 @@ func TestSigningResponse(t *testing.T) {
 		entitymd, _ := Md.Internal.MDQ(entityID)
 
 		tp := browse(nil, &overwrites{"Spmd": entitymd})
-        if tp != nil {
-            samlresponse, _ := gosaml.Html2SAMLResponse(tp.Responsebody)
-            responseSignatures := len(samlresponse.QueryMulti(nil, "/samlp:Response/ds:Signature"))
-            assertionSignatures := len(samlresponse.QueryMulti(nil, "/samlp:Response/saml:Assertion/ds:Signature"))
-            fmt.Printf("Response signature = %d Assertion signatures = %d\n",  responseSignatures, assertionSignatures )
-            expected = `Response signature = 1 Assertion signatures = 0
+		if tp != nil {
+			samlresponse, _ := gosaml.Html2SAMLResponse(tp.Responsebody)
+			responseSignatures := len(samlresponse.QueryMulti(nil, "/samlp:Response/ds:Signature"))
+			assertionSignatures := len(samlresponse.QueryMulti(nil, "/samlp:Response/saml:Assertion/ds:Signature"))
+			fmt.Printf("Response signature = %d Assertion signatures = %d\n", responseSignatures, assertionSignatures)
+			expected = `Response signature = 1 Assertion signatures = 0
 `
-        }
+		}
 	} else {
 		expected += "no entity suited for test found"
 	}
@@ -1076,7 +1076,7 @@ func TestFullAttributesetSP2(t *testing.T) {
 	if res != nil {
 		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
 	}
-    expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+	expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     joe@this.is.not.a.valid.idp
 eduPersonTargetedID urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     WAYF-DK-493ee01e49107fed7c4b89622d8087bc5064cc15
@@ -1095,7 +1095,7 @@ func TestFullEncryptedAttributeset1(t *testing.T) {
 	if res != nil {
 		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
 	}
-    expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+	expected += `eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     joe@this.is.not.a.valid.idp
 eduPersonTargetedID urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     WAYF-DK-493ee01e49107fed7c4b89622d8087bc5064cc15
