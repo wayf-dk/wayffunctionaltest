@@ -196,7 +196,7 @@ func TestMain(m *testing.M) {
 
 	// need non-birk, non-request.validate and non-IDPList SPs for testing ....
 	var numberOfTestSPs int
-	testSPs, numberOfTestSPs, _ = Md.Internal.(*lMDQ.MDQ).MDQFilter("/*[not(contains(@entityID, 'birk.wayf.dk/birk.php'))]/*/wayf:wayf[not(wayf:IDPList!='') and wayf:redirect.validate='']/../../md:SPSSODescriptor/..")
+	testSPs, numberOfTestSPs, _ = Md.Internal.(*lMDQ.MDQ).MDQFilter("/md:EntityDescriptor/md:Extensions/wayf:wayf[wayf:federation='WAYF' and not(wayf:IDPList)]/../../md:SPSSODescriptor/..")
 	if numberOfTestSPs == 0 {
 		log.Fatal("No testSP candidates")
 	}
@@ -518,6 +518,8 @@ func (tp *Testparams) newresponse(u *url.URL) {
 	case "https://this.is.not.a.valid.idp":
 		// create a response
 		tp.Newresponse = gosaml.NewResponse(tp.Idpmd, tp.Hubspmd, authnrequest, tp.Attributestmt)
+		wayfhybrid.CopyAttributes(tp.Attributestmt, tp.Newresponse, tp.Hubspmd)
+
 
 		for _, xpath := range tp.ElementsToSign {
 			element := tp.Newresponse.Query(nil, xpath)[0]
@@ -1311,13 +1313,13 @@ func TestNoEPPNError(t *testing.T) {
 	if browse(m, nil) != nil {
 		switch *do {
 		case "hub":
-			expected = `mandatory: eduPersonPrincipalName
+			expected = `["cause:isRequired: eduPersonPrincipalName"]
 `
 		case "birk":
-			expected = `mandatory: eduPersonPrincipalName
+			expected = `["cause:isRequired: eduPersonPrincipalName"]
 `
 		case "hybrid", "hybridbirk":
-			expected = `["cause:Mandatory 'eduPersonPrincipalName' attribute missing"]
+			expected = `["cause:isRequired: eduPersonPrincipalName"]
 `
 		}
 	}
