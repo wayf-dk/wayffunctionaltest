@@ -520,7 +520,6 @@ func (tp *Testparams) newresponse(u *url.URL) {
 		tp.Newresponse = gosaml.NewResponse(tp.Idpmd, tp.Hubspmd, authnrequest, tp.Attributestmt)
 		wayfhybrid.CopyAttributes(tp.Attributestmt, tp.Newresponse, tp.Hubspmd)
 
-
 		for _, xpath := range tp.ElementsToSign {
 			element := tp.Newresponse.Query(nil, xpath)[0]
 			before := tp.Newresponse.Query(element, "*[2]")[0]
