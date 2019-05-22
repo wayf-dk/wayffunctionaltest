@@ -108,7 +108,7 @@ var (
 	Md                                                 wayfhybrid.MdSets
 
 	testAttributes = map[string][]string{
-		"eduPersonPrincipalName":     {"joe@this.is.not.a.valid.idp"},
+		"eduPersonPrincipalName": {"joe@this.is.not.a.valid.idp"},
 		"mail":                       {"joe@example.com"},
 		"gn":                         {`Anton Banton <SamlRequest id="abc">abc</SamlRequest>`},
 		"sn":                         {"Cantonsen"},
@@ -196,11 +196,11 @@ func TestMain(m *testing.M) {
 		panic(fmt.Errorf("Fatal error %s\n", err))
 	}
 
-    for _, ad := range wayfhybrid.X.AttributeDescriptions {
-        k := wayfhybrid.AttributeKey{ad.Name, wayfhybrid.X.AttributenameFormats[ad.Nameformat].Ns}
-        wayfhybrid.AttributeDescriptions[k] = ad
-        wayfhybrid.AttributeDescriptionsList[ad.Nameformat] = append(wayfhybrid.AttributeDescriptionsList[ad.Nameformat], ad)
-    }
+	for _, ad := range wayfhybrid.X.AttributeDescriptions {
+		k := wayfhybrid.AttributeKey{ad.Name, wayfhybrid.X.AttributenameFormats[ad.Nameformat].Ns}
+		wayfhybrid.AttributeDescriptions[k] = ad
+		wayfhybrid.AttributeDescriptionsList[ad.Nameformat] = append(wayfhybrid.AttributeDescriptionsList[ad.Nameformat], ad)
+	}
 
 	//gosaml.Config.CertPath = "testdata/"
 	//wayfhybrid.Md = Md
@@ -1283,8 +1283,8 @@ func TestEPPNScopingError(t *testing.T) {
 	var expected string
 	stdoutstart()
 	m := modsset{"attributemods": mods{
-        mod{`//saml:Attribute[@Name="eduPersonPrincipalName"]`, "", nil},
-	    mod{`/saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue[1]`, "joe@example.com", nil}}}
+		mod{`//saml:Attribute[@Name="eduPersonPrincipalName"]`, "", nil},
+		mod{`/saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue[1]`, "joe@example.com", nil}}}
 	if browse(m, nil) != nil {
 		switch *do {
 		case "hub", "birk":
@@ -1300,8 +1300,8 @@ func TestNoLocalpartInEPPNError(t *testing.T) {
 	var expected string
 	stdoutstart()
 	m := modsset{"attributemods": mods{
-        mod{`//saml:Attribute[@Name="eduPersonPrincipalName"]`, "", nil},
-	    mod{`/saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue[1]`, "@this.is.not.a.valid.idp", nil}}}
+		mod{`//saml:Attribute[@Name="eduPersonPrincipalName"]`, "", nil},
+		mod{`/saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue[1]`, "@this.is.not.a.valid.idp", nil}}}
 	if browse(m, nil) != nil {
 		switch *do {
 		case "hub", "birk":
@@ -1317,8 +1317,8 @@ func TestNoDomainInEPPNError(t *testing.T) {
 	var expected string
 	stdoutstart()
 	m := modsset{"attributemods": mods{
-        mod{`//saml:Attribute[@Name="eduPersonPrincipalName"]`, "", nil},
-	    mod{`/saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue[1]`, "joe", nil}}}
+		mod{`//saml:Attribute[@Name="eduPersonPrincipalName"]`, "", nil},
+		mod{`/saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue[1]`, "joe", nil}}}
 	if browse(m, nil) != nil {
 		switch *do {
 		case "hub", "birk":
