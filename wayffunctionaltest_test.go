@@ -287,7 +287,7 @@ func Newtp(overwrite *overwrites) (tp *Testparams) {
 	tp.Birk = dobirk
 	tp.Trace = *trace
 	tp.Logxml = *logxml
-	tp.Hashalgorithm = "sha1"
+	tp.Hashalgorithm = "sha256"
 	tp.ElementsToSign = []string{"saml:Assertion[1]"}
 
 	tp.Idp = "https://this.is.not.a.valid.idp"
@@ -769,7 +769,7 @@ func xTestMultipleSPs(t *testing.T) {
 }
 
 // TestDigestMethodSha1 tests that the Signature|DigestMethod is what the sp asks for
-func TestDigestMethodSendingSha1(t *testing.T) {
+func xTestDigestMethodSendingSha1(t *testing.T) {
 	stdoutstart()
 	expected := ""
 	entitymd, _ := Md.Internal.MDQ("https://metadata.wayf.dk/PHPh")
@@ -808,7 +808,7 @@ http://www.w3.org/2001/04/xmlenc#sha256
 }
 
 // TestDigestMethodSha1 tests that the Signature|DigestMethod is what the sp asks for
-func TestDigestMethodReceivingSha1(t *testing.T) {
+func xTestDigestMethodReceivingSha1(t *testing.T) {
 	stdoutstart()
 	expected := ""
 	entitymd, _ := Md.Internal.MDQ("https://metadata.wayf.dk/PHPh")
