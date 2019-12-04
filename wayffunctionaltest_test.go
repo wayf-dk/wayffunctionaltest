@@ -418,14 +418,10 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 		if method == "POST" {
 			tp.logxml(tp.Newresponse)
 			acs := tp.Newresponse.Query1(nil, "@Destination")
-			issuer, _ := url.Parse(tp.Newresponse.Query1(nil, "./saml:Issuer"))
-			if (tp.Birk || tp.Hub) && map[string]bool{"birk.wayf.dk": true, "wayf.wayf.dk": true}[issuer.Host] {
-				// in the new hybrid consent is made in js - and the flag for bypassing it is in js - sad!
-				tp.ConsentGiven = strings.Contains(htmlresponse.PP(), `,"BypassConfirmation":false`)
-			}
 			u, _ = url.Parse(acs)
 			//q.Q(u, finalDestination)
 			if u.Host == finalDestination.Host {
+                tp.ConsentGiven = strings.Contains(htmlresponse.PP(), `,"BypassConfirmation":false`)
 				tp.logxml(tp.Newresponse)
 				err := ValidateSignature(tp.Firstidpmd, tp.Newresponse)
 				if err != nil {
