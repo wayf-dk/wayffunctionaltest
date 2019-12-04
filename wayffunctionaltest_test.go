@@ -196,12 +196,6 @@ func TestMain(m *testing.M) {
 		panic(fmt.Errorf("Fatal error %s\n", err))
 	}
 
-	for _, ad := range wayfhybrid.X.AttributeDescriptions {
-		k := wayfhybrid.AttributeKey{ad.Name, wayfhybrid.X.AttributenameFormats[ad.Nameformat].Ns}
-		wayfhybrid.AttributeDescriptions[k] = ad
-		wayfhybrid.AttributeDescriptionsList[ad.Nameformat] = append(wayfhybrid.AttributeDescriptionsList[ad.Nameformat], ad)
-	}
-
 	//gosaml.Config.CertPath = "testdata/"
 	//wayfhybrid.Md = Md
 	//go wayfhybrid.Main()
