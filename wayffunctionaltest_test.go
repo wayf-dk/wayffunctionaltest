@@ -301,7 +301,7 @@ func Newtp(overwrite *overwrites) (tp *Testparams) {
 	}
 
 	// don't use urn:... entityID'ed IdPs for now
-	tp.BirkIdp = regexp.MustCompile("^(https?://)(.*)$").ReplaceAllString(tp.Idp, "${1}birk.wayf.dk/birk.php/$2")
+	tp.BirkIdp = tp.Idp // regexp.MustCompile("^(https?://)(.*)$").ReplaceAllString(tp.Idp, "${1}birk.wayf.dk/birk.php/$2")
 	tp.Hubidpmd, _ = Md.Hub.MDQ("https://wayf.wayf.dk")
 	tp.Hubspmd = tp.Hubidpmd
 	tp.Idpmd, _ = Md.Internal.MDQ(tp.Idp)
