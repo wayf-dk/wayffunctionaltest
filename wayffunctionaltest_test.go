@@ -2,10 +2,13 @@ package wayffunctionaltest
 
 import (
 	"bytes"
+    "context"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,7 +16,7 @@ import (
 	"github.com/wayf-dk/go-libxml2/types"
 	"github.com/wayf-dk/gosaml"
 	"github.com/wayf-dk/goxml"
-	"github.com/wayf-dk/lMDQ"
+	"github.com/wayf-dk/lmdq"
 	"github.com/wayf-dk/wayfhybrid"
 	"github.com/y0ssar1an/q"
 	"io"
@@ -43,7 +46,7 @@ var (
 
 type (
 	Testparams struct {
-		Idp, BirkIdp, FinalIdp                             string
+		Idp, SP, BirkIdp, FinalIdp                             string
 		Spmd, Idpmd, Hubidpmd, Hubspmd, Birkmd, Firstidpmd *goxml.Xp
 		Cookiejar                                          map[string]map[string]*http.Cookie
 		IdpentityID                                        string
@@ -65,6 +68,7 @@ type (
 		Env                            string
 		ConsentGiven                   bool
 		ElementsToSign                 []string
+		SAML2jwt, Jwt2SAML             string
 	}
 
 	overwrites map[string]interface{}
@@ -84,41 +88,28 @@ const lMDQ_METADATA_SCHEMA_PATH = "src/github.com/wayf-dk/goxml/schemas/ws-feder
 
 var (
 	mdsources = map[string]map[string]string{
-		"prodz": {
-			"hub":         "../hybrid-metadata-test.mddb",
-			"internal":    "../hybrid-metadata.mddb",
-			"externalIdP": "../hybrid-metadata-test.mddb",
-			"externalSP":  "../hybrid-metadata.mddb",
-		},
 		"prod": {
 			"hub":         "../hybrid-metadata.mddb",
 			"internal":    "../hybrid-metadata.mddb",
 			"externalIdP": "../hybrid-metadata.mddb",
 			"externalSP":  "../hybrid-metadata.mddb",
 		},
-		"dev": {
-			"hub":         "../hybrid-metadata-test.mddb",
-			"internal":    "../hybrid-metadata-test.mddb",
-			"externalIdP": "../hybrid-metadata-test.mddb",
-			"externalSP":  "../hybrid-metadata-test.mddb",
-		},
 	}
 
-	wayf_hub_public, internal, externalIdP, externalSP *lMDQ.MDQ
-	Md                                                 wayfhybrid.MdSets
+	hub, internal, externalIdP, externalSP *lmdq.MDQ
 
 	testAttributes = map[string][]string{
-		"eduPersonPrincipalName": {"joe@this.is.not.a.valid.idp"},
-		"mail":                       {"joe@example.com"},
-		"gn":                         {`Anton Banton <SamlRequest id="abc">abc</SamlRequest>`},
-		"sn":                         {"Cantonsen"},
-		"norEduPersonLIN":            {"123456789"},
-		"eduPersonScopedAffiliation": {"student@this.is.not.a.valid.idp", "member@this.is.not.a.valid.idp"},
-		"preferredLanguage":          {"da"},
-		"eduPersonEntitlement":       {"https://example.com/course101"},
-		"eduPersonAssurance":         {"2"},
-		"organizationName":           {"Orphanage - home for the homeless"},
-		"cn":                         {"Anton Banton Cantonsen"},
+		"eduPersonPrincipalName":      {"joe@this.is.not.a.valid.idp"},
+		"mail":                        {"joe@example.com"},
+		"gn":                          {`Anton Banton <SamlRequest id="abc">abc</SamlRequest>`},
+		"sn":                          {"Cantonsen"},
+		"norEduPersonLIN":             {"123456789"},
+		"eduPersonScopedAffiliation":  {"student@this.is.not.a.valid.idp", "member@this.is.not.a.valid.idp"},
+		"preferredLanguage":           {"da"},
+		"eduPersonEntitlement":        {"https://example.com/course101"},
+		"eduPersonAssurance":          {"2"},
+		"organizationName":            {"Orphanage - home for the homeless"},
+		"cn":                          {"Anton Banton Cantonsen"},
 		"eduPersonPrimaryAffiliation": {"student"},
 		"eduPersonAffiliation":        {"alum"},
 		"schacHomeOrganizationType":   {"abc"},
@@ -128,7 +119,7 @@ var (
 	}
 
 	do           = flag.String("do", "hub", "Which tests to run")
-	hub          = flag.String("hub", "wayf.wayf.dk", "the hostname for the hub server to be tested")
+	hubfe        = flag.String("hub", "wayf.wayf.dk", "the hostname for the hub server to be tested")
 	hubbe        = flag.String("hubbe", "", "the hub backend server")
 	birk         = flag.String("birk", "birk.wayf.dk", "the hostname for the BIRK server to be tested")
 	birkbe       = flag.String("birkbe", "", "the birk backend server")
@@ -138,6 +129,7 @@ var (
 	env          = flag.String("env", "prod", "which environment to test dev, hybrid, prod - if not dev")
 	refreshmd    = flag.Bool("refreshmd", true, "update local metadatcache before testing")
 	testcertpath = flag.String("testcertpath", "/etc/ssl/wayf/certs/wildcard.test.lan.pem", "path to the testing cert")
+	insecureTLS           = true
 
 	testSPs *goxml.Xp
 
@@ -171,29 +163,34 @@ var (
 
 func TestMain(m *testing.M) {
 	flag.Parse()
-	dohub = *do == "hub"
-	dobirk = *do == "birk"
-	log.Printf("do: %q hub: %q backend: %q birk: %q backend: %q\n", *do, *hub, *hubbe, *birk, *birkbe)
+	path := wayfhybrid.Env("WAYF_PATH", "/opt/wayf/")
 
-	Md.Hub = &lMDQ.MDQ{Path: "file:" + mdsources[*env]["hub"] + "?mode=ro", Table: "HYBRID_HUB"}
-	Md.Internal = &lMDQ.MDQ{Path: "file:" + mdsources[*env]["internal"] + "?mode=ro", Table: "HYBRID_INTERNAL"}
-	Md.ExternalIdP = &lMDQ.MDQ{Path: "file:" + mdsources[*env]["externalIdP"] + "?mode=ro", Table: "HYBRID_EXTERNAL_IDP"}
-	Md.ExternalSP = &lMDQ.MDQ{Path: "file:" + mdsources[*env]["externalSP"] + "?mode=ro", Table: "HYBRID_EXTERNAL_SP"}
-	for _, md := range []gosaml.Md{Md.Hub, Md.Internal, Md.ExternalIdP, Md.ExternalSP} {
-		err := md.(*lMDQ.MDQ).Open()
-		if err != nil {
-			panic(err)
-		}
-	}
-
-	tomlConfig, err := toml.LoadFile(wayfhybrid.X.Path + "hybrid-config/hybrid-config.toml")
+	config := wayfhybrid.Conf{}
+	tomlConfig, err := toml.LoadFile(path + "hybrid-config/hybrid-config.toml")
 
 	if err != nil { // Handle errors reading the config file
 		panic(fmt.Errorf("Fatal error config file: %s\n", err))
 	}
-	err = tomlConfig.Unmarshal(wayfhybrid.X)
+	err = tomlConfig.Unmarshal(&config)
 	if err != nil {
 		panic(fmt.Errorf("Fatal error %s\n", err))
+	}
+
+	gosaml.AuthnRequestCookie = &gosaml.Hm{180, sha256.New, []byte("abcd")}
+
+	dohub = *do == "hub"
+	dobirk = *do == "birk"
+	log.Printf("do: %q hub: %q backend: %q birk: %q backend: %q\n", *do, *hubfe, *hubbe, *birk, *birkbe)
+
+	hub = &lmdq.MDQ{Path: "file:" + mdsources[*env]["hub"] + "?mode=ro", Table: "HYBRID_HUB"}
+	internal = &lmdq.MDQ{Path: "file:" + mdsources[*env]["internal"] + "?mode=ro", Table: "HYBRID_INTERNAL"}
+	externalIdP = &lmdq.MDQ{Path: "file:" + mdsources[*env]["externalIdP"] + "?mode=ro", Table: "HYBRID_EXTERNAL_IDP"}
+	externalSP = &lmdq.MDQ{Path: "file:" + mdsources[*env]["externalSP"] + "?mode=ro", Table: "HYBRID_EXTERNAL_SP"}
+	for _, md := range []gosaml.Md{hub, internal, externalIdP, externalSP} {
+		err := md.(*lmdq.MDQ).Open()
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	//gosaml.Config.CertPath = "testdata/"
@@ -202,12 +199,12 @@ func TestMain(m *testing.M) {
 
 	// need non-birk, non-request.validate and non-IDPList SPs for testing ....
 	var numberOfTestSPs int
-	testSPs, numberOfTestSPs, _ = Md.Internal.MDQFilter("/md:EntityDescriptor/md:Extensions/wayf:wayf[wayf:federation='WAYF' and not(wayf:IDPList)]/../../md:SPSSODescriptor/..")
+	testSPs, numberOfTestSPs, _ = internal.MDQFilter("/md:EntityDescriptor/md:Extensions/wayf:wayf[wayf:federation='WAYF' and not(wayf:IDPList)]/../../md:SPSSODescriptor/..")
 	if numberOfTestSPs == 0 {
 		log.Fatal("No testSP candidates")
 	}
 
-	resolv = map[string]string{"wayf.wayf.dk:443": *hub + ":443", "birk.wayf.dk:443": *birk + ":443", "krib.wayf.dk:443": *hub + ":443", "ds.wayf.dk:443": *ds + ":443"}
+	resolv = map[string]string{"wayf.wayf.dk:443": *hubfe + ":443", "birk.wayf.dk:443": *birk + ":443", "krib.wayf.dk:443": *hubfe + ":443", "ds.wayf.dk:443": *ds + ":443"}
 
 	tr = &http.Transport{
 		TLSClientConfig:    &tls.Config{InsecureSkipVerify: true},
@@ -283,10 +280,11 @@ func Newtp(overwrite *overwrites) (tp *Testparams) {
 	tp.Logxml = *logxml
 	tp.Hashalgorithm = "sha256"
 	tp.ElementsToSign = []string{"saml:Assertion[1]"}
-
+    tp.SAML2jwt = "https://wayf.wayf.dk/saml2jwt"
 	tp.Idp = "https://this.is.not.a.valid.idp"
 	tp.FinalIdp = tp.Idp
-	tp.Spmd, _ = Md.Internal.MDQ("https://wayfsp.wayf.dk")
+	SP := "https://wayfsp.wayf.dk"
+	tp.Spmd, _ = internal.MDQ(SP)
 
 	if overwrite != nil { // overwrite default values with test specific values while it still matters
 		for k, v := range *overwrite {
@@ -294,12 +292,14 @@ func Newtp(overwrite *overwrites) (tp *Testparams) {
 		}
 	}
 
+	tp.SP = tp.Spmd.Query1(nil, "@entityID")
+
 	// don't use urn:... entityID'ed IdPs for now
 	tp.BirkIdp = tp.Idp // regexp.MustCompile("^(https?://)(.*)$").ReplaceAllString(tp.Idp, "${1}birk.wayf.dk/birk.php/$2")
-	tp.Hubidpmd, _ = Md.Hub.MDQ("https://wayf.wayf.dk")
+	tp.Hubidpmd, _ = hub.MDQ("https://wayf.wayf.dk")
 	tp.Hubspmd = tp.Hubidpmd
-	tp.Idpmd, _ = Md.Internal.MDQ(tp.Idp)
-	tp.Birkmd, _ = Md.ExternalIdP.MDQ(tp.BirkIdp)
+	tp.Idpmd, _ = internal.MDQ(tp.Idp)
+	tp.Birkmd, _ = externalIdP.MDQ(tp.BirkIdp)
 
 	tp.DSIdpentityID = tp.Idp
 	switch *do {
@@ -362,7 +362,7 @@ func newAttributeStatement(attrs map[string][]string) (ats *goxml.Xp) {
 </saml:Assertion>`
 
 	ats = goxml.NewXpFromString(template)
-	ats.QueryDashP(nil, "./saml:Subject/saml:NameID", gosaml.Id(), nil)
+	ats.QueryDashP(nil, "./saml:Subject/saml:NameID", gosaml.ID(), nil)
 	attributeStmt := ats.Query(nil, "./saml:AttributeStatement")[0]
 	i := 1
 	for attr, attrvals := range attrs {
@@ -380,9 +380,66 @@ func newAttributeStatement(attrs map[string][]string) (ats *goxml.Xp) {
 	return
 }
 
-// Does what the browser does follow redirects and POSTs and displays errors
-func browse(m modsset, overwrite interface{}) (tp *Testparams) {
-	var htmlresponse *goxml.Xp
+func SAML2jwtDo(service string, v url.Values) (resp *http.Response, err error) {
+
+    dialer := &net.Dialer{
+        Timeout:   30 * time.Second,
+        KeepAlive: 30 * time.Second,
+        DualStack: true,
+    }
+
+	client := &http.Client{
+		Transport: &http.Transport{
+		    TLSClientConfig: &tls.Config{InsecureSkipVerify: insecureTLS},
+        		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+                if tmp, ok := resolv[addr]; ok {
+                    addr = tmp
+                }
+                return dialer.DialContext(ctx, network, addr)
+            },
+	    },
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	body := strings.NewReader(v.Encode())
+	req, _ := http.NewRequest("POST", service, body)
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Cookie", "wayfid=wayf-qa")
+	resp, err = client.Do(req)
+	return
+}
+
+func (tp *Testparams) SAML2jwtRequest() (u *url.URL) {
+    acs := []string{tp.Initialrequest.Query1(nil, "./@AssertionConsumerServiceURL")}
+    issuer := []string{tp.Initialrequest.Query1(nil, "saml:Issuer")}
+	resp, _ := SAML2jwtDo(tp.SAML2jwt, url.Values{"acs": acs, "issuer": issuer})
+	location := resp.Header.Get("location")
+	u, _ = url.Parse(location)
+    return
+}
+
+func SAML2jwtResponse(service string, v url.Values) {
+/*
+	resp, _ := SAML2jwtDo(service, v)
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+	resp.Body.Close()
+	headerPayloadSignature := strings.SplitN(string(body), ".", 3)
+	payload, _ := base64.RawURLEncoding.DecodeString(headerPayloadSignature[1])
+	var attrs map[string]interface{}
+	err = json.Unmarshal(payload, &attrs)
+	if err != nil {
+		return nil, err
+	}
+	return attrs, nil
+*/
+}
+
+func sp(m modsset, overwrite interface{}) (tp *Testparams, u *url.URL) {
 	switch t := overwrite.(type) {
 	case *overwrites:
 		tp = Newtp(t)
@@ -391,13 +448,22 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 	case nil:
 		tp = Newtp(nil)
 	}
-	stage := map[string]string{"hub": "wayf.wayf.dk", "birk": "wayf.wayf.dk"}[*do]
+	tp.Initialrequest, _ = gosaml.NewAuthnRequest(nil, tp.Spmd, tp.Firstidpmd, tp.IdpentityID, []string{tp.IdpentityID}, "", false, 0, 0)
+
+    u = tp.SAML2jwtRequest()
+    return
 
 	ApplyMods(tp.Attributestmt, m["attributemods"])
-	tp.Initialrequest, _ = gosaml.NewAuthnRequest(nil, tp.Spmd, tp.Firstidpmd, []string{tp.IdpentityID}, "")
 	ApplyMods(tp.Initialrequest, m["requestmods"])
-	u, _ := gosaml.SAMLRequest2Url(tp.Initialrequest, "", "", "", "")
+	u, _ = gosaml.SAMLRequest2URL(tp.Initialrequest, "", "", "", "")
+	return
+}
 
+// Does what the browser does follow redirects and POSTs and displays errors
+func browse(m modsset, overwrite interface{}) (tp *Testparams) {
+	var htmlresponse *goxml.Xp
+	tp, u := sp(m, overwrite)
+	stage := map[string]string{"hub": "wayf.wayf.dk", "birk": "wayf.wayf.dk"}[*do]
 	// when to stop
 	finalDestination, _ := url.Parse(tp.Initialrequest.Query1(nil, "./@AssertionConsumerServiceURL"))
 	finalIdp, _ := url.Parse(tp.FinalIdp)
@@ -415,7 +481,7 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 			u, _ = url.Parse(acs)
 			//q.Q(u, finalDestination)
 			if u.Host == finalDestination.Host {
-                tp.ConsentGiven = strings.Contains(htmlresponse.PP(), `,"BypassConfirmation":false`)
+				tp.ConsentGiven = strings.Contains(htmlresponse.PP(), `,"BypassConfirmation":false`)
 				tp.logxml(tp.Newresponse)
 				err := ValidateSignature(tp.Firstidpmd, tp.Newresponse)
 				if err != nil {
@@ -446,7 +512,7 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 				return nil
 			}
 		}
-		htmlresponse = goxml.NewHtmlXp(tp.Responsebody)
+		htmlresponse = goxml.NewHTMLXp(tp.Responsebody)
 		// delete stuff that just  takes too much space when debugging
 		tp.Resp.TLS = nil
 		tp.Resp.Body = nil
@@ -486,7 +552,7 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 			fmt.Println(strings.Trim(error, "\n "))
 			break
 		} else {
-			tp.Newresponse, _ = gosaml.Html2SAMLResponse(tp.Responsebody)
+			tp.Newresponse, _ = gosaml.HTML2SAMLResponse(tp.Responsebody)
 			if tp.Newresponse.Query1(nil, ".") == "" { // from old hub - disjoint federations
 				fmt.Println("unknown error")
 				break
@@ -614,7 +680,7 @@ func (tp *Testparams) sendRequest(url *url.URL, method, body string, cookies map
 
 	// We didn't get a Location: header - we are POST'ing a SAMLResponse
 	if loc == "" {
-		response := goxml.NewHtmlXp(responsebody)
+		response := goxml.NewHTMLXp(responsebody)
 		samlbase64 := response.Query1(nil, `//input[@name="SAMLResponse"]/@value`)
 		if samlbase64 != "" {
 			samlxml, _ := base64.StdEncoding.DecodeString(samlbase64)
@@ -707,13 +773,13 @@ func TestAttributeNameFormat(t *testing.T) {
 
 	for _, attrname := range attrnameformats {
 		eID := testSPs.Query1(nil, attrnameformatqueries[attrname])
-		md, _ := Md.Internal.MDQ(eID)
+		md, _ := internal.MDQ(eID)
 		if md == nil {
 			log.Fatalln("No SP found for testing attributenameformat: ", attrname)
 		}
 		tp := browse(nil, &overwrites{"Spmd": md})
 		if tp != nil {
-			//samlresponse := Html2SAMLResponse(tp)
+			//samlresponse := HTML2SAMLResponse(tp)
 			requested := md.QueryNumber(nil, mdcount)
 			uricount := tp.Newresponse.QueryNumber(nil, ascounturi)
 			basiccount := tp.Newresponse.QueryNumber(nil, ascountbasic)
@@ -740,7 +806,7 @@ func xTestMultipleSPs(t *testing.T) {
 
 	for _, eID := range eIDs {
 		log.Println("eID", eID)
-		md, _ := Md.Internal.MDQ(eID)
+		md, _ := internal.MDQ(eID)
 		if md == nil {
 			log.Fatalln("No SP found for testing multiple SPs: ", eID)
 		}
@@ -762,11 +828,11 @@ func xTestMultipleSPs(t *testing.T) {
 func xTestDigestMethodSendingSha1(t *testing.T) {
 	stdoutstart()
 	expected := ""
-	entitymd, _ := Md.Internal.MDQ("https://metadata.wayf.dk/PHPh")
+	entitymd, _ := internal.MDQ("https://metadata.wayf.dk/PHPh")
 
 	tp := browse(nil, &overwrites{"Spmd": entitymd})
 	if tp != nil {
-		samlresponse, _ := gosaml.Html2SAMLResponse(tp.Responsebody)
+		samlresponse, _ := gosaml.HTML2SAMLResponse(tp.Responsebody)
 		signatureMethod := samlresponse.Query1(nil, "//ds:SignatureMethod/@Algorithm")
 		digestMethod := samlresponse.Query1(nil, "//ds:DigestMethod/@Algorithm")
 		fmt.Printf("%s\n%s\n", signatureMethod, digestMethod)
@@ -781,12 +847,12 @@ http://www.w3.org/2000/09/xmldsig#sha1
 func TestDigestMethodSendingSha256(t *testing.T) {
 	stdoutstart()
 	expected := ""
-	entitymd, _ := Md.Internal.MDQ("https://wayfsp2.wayf.dk")
-	//entitymd, _ := Md.Internal.MDQ("https://ucsyd.papirfly.com/AuthServices")
+	entitymd, _ := internal.MDQ("https://wayfsp2.wayf.dk")
+	//entitymd, _ := internal.MDQ("https://ucsyd.papirfly.com/AuthServices")
 
 	tp := browse(nil, &overwrites{"Spmd": entitymd})
 	if tp != nil {
-		samlresponse, _ := gosaml.Html2SAMLResponse(tp.Responsebody)
+		samlresponse, _ := gosaml.HTML2SAMLResponse(tp.Responsebody)
 		signatureMethod := samlresponse.Query1(nil, "//ds:SignatureMethod/@Algorithm")
 		digestMethod := samlresponse.Query1(nil, "//ds:DigestMethod/@Algorithm")
 		fmt.Printf("%s\n%s\n", signatureMethod, digestMethod)
@@ -801,11 +867,11 @@ http://www.w3.org/2001/04/xmlenc#sha256
 func xTestDigestMethodReceivingSha1(t *testing.T) {
 	stdoutstart()
 	expected := ""
-	entitymd, _ := Md.Internal.MDQ("https://metadata.wayf.dk/PHPh")
+	entitymd, _ := internal.MDQ("https://metadata.wayf.dk/PHPh")
 
 	tp := browse(nil, &overwrites{"Spmd": entitymd})
 	if tp != nil {
-		samlresponse, _ := gosaml.Html2SAMLResponse(tp.Responsebody)
+		samlresponse, _ := gosaml.HTML2SAMLResponse(tp.Responsebody)
 		signatureMethod := samlresponse.Query1(nil, "//ds:SignatureMethod/@Algorithm")
 		digestMethod := samlresponse.Query1(nil, "//ds:DigestMethod/@Algorithm")
 		fmt.Printf("%s\n%s\n", signatureMethod, digestMethod)
@@ -820,12 +886,12 @@ http://www.w3.org/2000/09/xmldsig#sha1
 func TestDigestMethodReceivingSha256(t *testing.T) {
 	stdoutstart()
 	expected := ""
-	entitymd, _ := Md.Internal.MDQ("https://wayfsp2.wayf.dk")
-	//entitymd, _ := Md.Internal.MDQ("https://ucsyd.papirfly.com/AuthServices")
+	entitymd, _ := internal.MDQ("https://wayfsp2.wayf.dk")
+	//entitymd, _ := internal.MDQ("https://ucsyd.papirfly.com/AuthServices")
 
 	tp := browse(nil, &overwrites{"Spmd": entitymd, "Hashalgorithm": "sha256"})
 	if tp != nil {
-		samlresponse, _ := gosaml.Html2SAMLResponse(tp.Responsebody)
+		samlresponse, _ := gosaml.HTML2SAMLResponse(tp.Responsebody)
 		signatureMethod := samlresponse.Query1(nil, "//ds:SignatureMethod/@Algorithm")
 		digestMethod := samlresponse.Query1(nil, "//ds:DigestMethod/@Algorithm")
 		fmt.Printf("%s\n%s\n", signatureMethod, digestMethod)
@@ -843,11 +909,11 @@ func TestSigningResponse(t *testing.T) {
 	// find an entity with consent disabled, but no a birk entity as we know that using ssp does not understand the wayf namespace yet ...
 	entityID := testSPs.Query1(nil, "/*/*/*/wayf:wayf[wayf:saml20.sign.response='1']/../../md:SPSSODescriptor/../@entityID")
 	if entityID != "" {
-		entitymd, _ := Md.Internal.MDQ(entityID)
+		entitymd, _ := internal.MDQ(entityID)
 
 		tp := browse(nil, &overwrites{"Spmd": entitymd})
 		if tp != nil {
-			samlresponse, _ := gosaml.Html2SAMLResponse(tp.Responsebody)
+			samlresponse, _ := gosaml.HTML2SAMLResponse(tp.Responsebody)
 			responseSignatures := len(samlresponse.QueryMulti(nil, "/samlp:Response/ds:Signature"))
 			assertionSignatures := len(samlresponse.QueryMulti(nil, "/samlp:Response/saml:Assertion/ds:Signature"))
 			fmt.Printf("Response signature = %d Assertion signatures = %d\n", responseSignatures, assertionSignatures)
@@ -867,7 +933,7 @@ func TestConsentDisabled(t *testing.T) {
 	// find an entity with consent disabled, but no a birk entity as we know that using ssp does not understand the wayf namespace yet ...
 	entityID := testSPs.Query1(nil, "/*/*/*/wayf:wayf[wayf:consent.disable='1']/../../md:SPSSODescriptor/../@entityID")
 	if entityID != "" {
-		entitymd, _ := Md.Internal.MDQ(entityID)
+		entitymd, _ := internal.MDQ(entityID)
 
 		tp := browse(nil, &overwrites{"Spmd": entitymd})
 		if tp != nil {
@@ -888,7 +954,7 @@ func TestConsentGiven(t *testing.T) {
 	// find an entity with consent disabled, but no a birk entity as we know that using ssp does not understand the wayf namespace yet ...
 	entityID := testSPs.Query1(nil, "/*/*/*/wayf:wayf[not(wayf:consent.disable='1')]/../../md:SPSSODescriptor/../@entityID")
 	if entityID != "" {
-		entitymd, _ := Md.Internal.MDQ(entityID)
+		entitymd, _ := internal.MDQ(entityID)
 
 		tp := browse(nil, &overwrites{"Spmd": entitymd})
 		if tp != nil {
@@ -909,7 +975,7 @@ func xTestPersistentNameID(t *testing.T) {
 	defer stdoutend(t, expected)
 	entityID := testSPs.Query1(nil, "/*/*/md:SPSSODescriptor/md:NameIDFormat[.='urn:oasis:names:tc:SAML:2.0:nameid-format:persistent']/../md:AttributeConsumingService/md:RequestedAttribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10' or @Name='eduPersonTargetedID']/../../../@entityID")
 	log.Println("ent", entityID)
-	entitymd, _ := Md.Internal.MDQ(entityID)
+	entitymd, _ := internal.MDQ(entityID)
 	if entitymd == nil {
 		return
 		//log.Fatalln("no SP found for testing TestPersistentNameID")
@@ -917,7 +983,7 @@ func xTestPersistentNameID(t *testing.T) {
 
 	tp := browse(nil, &overwrites{"Spmd": entitymd})
 	if tp != nil {
-		samlresponse, _ := gosaml.Html2SAMLResponse(tp.Responsebody)
+		samlresponse, _ := gosaml.HTML2SAMLResponse(tp.Responsebody)
 		entityID := entitymd.Query1(nil, "@entityID")
 		nameidformat := samlresponse.Query1(nil, "//saml:NameID/@Format")
 		nameid := samlresponse.Query1(nil, "//saml:NameID")
@@ -934,14 +1000,14 @@ func TestTransientNameID(t *testing.T) {
 	stdoutstart()
 	var expected string
 	eID := testSPs.Query1(nil, "/*/*/*/wayf:wayf/wayf:feds[.='WAYF']/../../../md:SPSSODescriptor/md:NameIDFormat[.='urn:oasis:names:tc:SAML:2.0:nameid-format:transient']/../../@entityID")
-	entitymd, _ := Md.Internal.MDQ(eID)
+	entitymd, _ := internal.MDQ(eID)
 	var tp *Testparams
 	entityID := ""
 	//	m := modsset{"responsemods": mods{mod{"./saml:Assertion/saml:Issuer", "+ 1234", nil}}}
 	//	m := modsset{"responsemods": mods{mod{"./saml:Assertion/ds:Signature/ds:SignatureValue", "+ 1234", nil}}}
 	tp = browse(nil, &overwrites{"Spmd": entitymd})
 	if tp != nil {
-		samlresponse, _ := gosaml.Html2SAMLResponse(tp.Responsebody)
+		samlresponse, _ := gosaml.HTML2SAMLResponse(tp.Responsebody)
 		entityID = entitymd.Query1(nil, "@entityID")
 		nameid := samlresponse.Query1(nil, "//saml:NameID")
 		nameidformat := samlresponse.Query1(nil, "//saml:NameID/@Format")
@@ -967,7 +1033,7 @@ func TestUnspecifiedNameID(t *testing.T) {
 		if tp == nil || tp.Resp.StatusCode != 200 {
 			continue
 		}
-		samlresponse := Html2SAMLResponse(tp)
+		samlresponse := HTML2SAMLResponse(tp)
 		nameidformat := samlresponse.Query1(nil, "//saml:NameID/@Format")
 		nameid := samlresponse.Query1(nil, "//saml:NameID")
 		eptid := samlresponse.Query1(nil, "//saml:Attribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10']/saml:AttributeValue")
@@ -1052,6 +1118,8 @@ schacPersonalUniqueID urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     urn:mace:terena.org:schac:personalUniqueID:dk:CPR:2408586234
 schacYearOfBirth urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     1858
+sn NameStandIn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    Cantonsen
 sn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     Cantonsen
 `
@@ -1066,7 +1134,7 @@ sn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
 func TestFullAttributesetSP2(t *testing.T) {
 	var expected string
 	stdoutstart()
-	spmd, _ := Md.Internal.MDQ("https://metadata.wayf.dk/PHPh")
+	spmd, _ := internal.MDQ("https://metadata.wayf.dk/PHPh")
 	res := browse(nil, &overwrites{"Spmd": spmd})
 	if res != nil {
 		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
@@ -1084,7 +1152,7 @@ mail urn:oasis:names:tc:SAML:2.0:attrname-format:basic
 func TestFullEncryptedAttributeset1(t *testing.T) {
 	var expected string
 	stdoutstart()
-	spmd, _ := Md.Internal.MDQ("https://metadata.wayf.dk/PHPh")
+	spmd, _ := internal.MDQ("https://metadata.wayf.dk/PHPh")
 	overwrite := &overwrites{"Encryptresponse": true, "Spmd": spmd}
 	res := browse(nil, overwrite)
 	if res != nil {
@@ -1103,7 +1171,7 @@ mail urn:oasis:names:tc:SAML:2.0:attrname-format:basic
 func TestAccessForNonIntersectingAdHocFederations(t *testing.T) {
 	var expected string
 	stdoutstart()
-	spmd, _ := Md.Internal.MDQ("https://this.is.not.a.valid.sp")
+	spmd, _ := internal.MDQ("https://this.is.not.a.valid.sp")
 	overwrite := &overwrites{"Spmd": spmd}
 	res := browse(nil, overwrite)
 	if res != nil {
@@ -1390,7 +1458,7 @@ func xTestSpeed(t *testing.T) {
 		go func(i int) {
 			for j := 0; j < iterations; j++ {
 				starttime := time.Now()
-				spmd, _ := Md.Internal.MDQ("https://metadata.wayf.dk/PHPh")
+				spmd, _ := internal.MDQ("https://metadata.wayf.dk/PHPh")
 				browse(nil, &overwrites{"Spmd": spmd})
 				log.Println(i, j, time.Since(starttime).Seconds())
 				//runtime.GC()
@@ -1400,4 +1468,13 @@ func xTestSpeed(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+}
+
+// PP - super simple Pretty Print - using JSON
+func PP(i ...interface{}) {
+	for _, e := range i {
+		s, _ := json.MarshalIndent(e, "", "\t")
+		fmt.Println(string(s))
+	}
+	return
 }
