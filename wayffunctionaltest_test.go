@@ -2,22 +2,17 @@ package wayffunctionaltest
 
 import (
 	"bytes"
-    "context"
-	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
-	toml "github.com/pelletier/go-toml"
 	"github.com/wayf-dk/go-libxml2/types"
 	"github.com/wayf-dk/gosaml"
 	"github.com/wayf-dk/goxml"
 	"github.com/wayf-dk/lmdq"
-	"github.com/wayf-dk/wayfhybrid"
 	"github.com/y0ssar1an/q"
 	"io"
 	"io/ioutil"
@@ -27,15 +22,17 @@ import (
 	"net/url"
 	"os"
 	"reflect"
-	"regexp"
-	//	"runtime"
-	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"text/template"
 	"time"
+)
+
+const (
+	requesting = iota
+	responding
 )
 
 var (
@@ -46,36 +43,36 @@ var (
 
 type (
 	Testparams struct {
-		Idp, SP, BirkIdp, FinalIdp                             string
+		Idp, SP, BirkIdp, FinalIdp, Hybrid, RelayState     string
 		Spmd, Idpmd, Hubidpmd, Hubspmd, Birkmd, Firstidpmd *goxml.Xp
 		Cookiejar                                          map[string]map[string]*http.Cookie
-		IdpentityID                                        string
-		DSIdpentityID                                      string
-		//		Resolv                                             map[string]string
-		Initialrequest                 *goxml.Xp
-		Newresponse                    *goxml.Xp
-		Resp                           *http.Response
-		Responsebody                   []byte
-		Err                            error
-		Trace, Logxml, Encryptresponse bool
-		Privatekey                     string
-		Privatekeypw                   string
-		Certificate                    string
-		Hashalgorithm                  string
-		Attributestmt                  *goxml.Xp
-		Hub                            bool
-		Birk                           bool
-		Env                            string
-		ConsentGiven                   bool
-		ElementsToSign                 []string
-		SAML2jwt, Jwt2SAML             string
+		//      Resolv                                             map[string]string
+		Method                                                   string
+		Initialrequest, FinalRequest                             *goxml.Xp
+		Newresponse                                              *goxml.Xp
+		Resp                                                     *http.Response
+		Responsebody                                             []byte
+		Err                                                      error
+		Trace, Logxml, Encryptresponse                           bool
+		Privatekey                                               string
+		Privatekeypw                                             string
+		Certificate                                              string
+		Hashalgorithm                                            string
+		Attributestmt                                            *goxml.Xp
+		Hub, Birk, ConsentGiven                                  bool
+		Env                                                      string
+		ElementsToSign                                           []string
+		Jwt2SAML, SAML2jwt, Jwt2SAMLResponse                     string
+		Jwt2SAMLDoRequest, SAML2jwtDoRequest, SAML2jwtDoResponse bool
+		PassedDisco, CheckRequesterID                            bool
 	}
 
 	overwrites map[string]interface{}
 
 	mod struct {
-		path, value string
-		function    func(*goxml.Xp)
+		Path, Value string
+		Function    *string
+		//function    func(*goxml.Xp)
 	}
 
 	mods []mod
@@ -96,40 +93,38 @@ var (
 		},
 	}
 
-	hub, internal, externalIdP, externalSP *lmdq.MDQ
+	hubMd, internalMd, externalIdPMd, externalSPMd *lmdq.MDQ
 
 	testAttributes = map[string][]string{
-		"eduPersonPrincipalName":      {"joe@this.is.not.a.valid.idp"},
-		"mail":                        {"joe@example.com"},
-		"gn":                          {`Anton Banton <SamlRequest id="abc">abc</SamlRequest>`},
-		"sn":                          {"Cantonsen"},
-		"norEduPersonLIN":             {"123456789"},
-		"eduPersonScopedAffiliation":  {"student@this.is.not.a.valid.idp", "member@this.is.not.a.valid.idp"},
-		"preferredLanguage":           {"da"},
-		"eduPersonEntitlement":        {"https://example.com/course101"},
-		"eduPersonAssurance":          {"2"},
-		"organizationName":            {"Orphanage - home for the homeless"},
 		"cn":                          {"Anton Banton Cantonsen"},
-		"eduPersonPrimaryAffiliation": {"student"},
+		"displayName":                 {"Anton Banton Cantonsen"},
 		"eduPersonAffiliation":        {"alum"},
+		"eduPersonAssurance":          {"2"},
+		"eduPersonEntitlement":        {"https://example.com/course101"},
+		"eduPersonPrimaryAffiliation": {"student"},
+		"eduPersonPrincipalName":      {"joe@this.is.not.a.valid.idp"},
+		"eduPersonScopedAffiliation":  {"student@this.is.not.a.valid.idp", "member@this.is.not.a.valid.idp"},
+		"entryUUID":                   {"entryUUID"},
+		"gn":                          {`Anton Banton <SamlRequest id="abc">abc</SamlRequest>`},
+		"mail":                        {"joe@example.com"},
+		"norEduPersonLIN":             {"123456789"},
+		"organizationName":            {"Orphanage - home for the homeless"},
+		"preferredLanguage":           {"da"},
+		"schacCountryOfCitizenship":   {"dk"},
 		"schacHomeOrganizationType":   {"abc"},
 		"schacPersonalUniqueID":       {"urn:mace:terena.org:schac:personalUniqueID:dk:CPR:2408586234"},
-		"schacCountryOfCitizenship":   {"dk"},
-		"displayName":                 {"Anton Banton Cantonsen"},
+		"sn":                          {"Cantonsen"},
 	}
 
 	do           = flag.String("do", "hub", "Which tests to run")
-	hubfe        = flag.String("hub", "wayf.wayf.dk", "the hostname for the hub server to be tested")
+	hub          = flag.String("hub", "wayf.wayf.dk", "the hostname for the hub server to be tested")
 	hubbe        = flag.String("hubbe", "", "the hub backend server")
-	birk         = flag.String("birk", "birk.wayf.dk", "the hostname for the BIRK server to be tested")
-	birkbe       = flag.String("birkbe", "", "the birk backend server")
 	ds           = flag.String("ds", "ds.wayf.dk", "the discovery server")
 	trace        = flag.Bool("xtrace", false, "trace the request/response flow")
 	logxml       = flag.Bool("logxml", false, "dump requests/responses in xml")
 	env          = flag.String("env", "prod", "which environment to test dev, hybrid, prod - if not dev")
-	refreshmd    = flag.Bool("refreshmd", true, "update local metadatcache before testing")
 	testcertpath = flag.String("testcertpath", "/etc/ssl/wayf/certs/wildcard.test.lan.pem", "path to the testing cert")
-	insecureTLS           = true
+	insecureTLS  = true
 
 	testSPs *goxml.Xp
 
@@ -141,20 +136,13 @@ var (
 		"prod": {
 			"eptid":   "WAYF-DK-c52a92a5467ae336a2be77cd06719c645e72dfd2",
 			"pnameid": "WAYF-DK-c52a92a5467ae336a2be77cd06719c645e72dfd2",
-		},
-		"prodz": {
-			"eptid":   "WAYF-DK-a7379f69e957371dc49350a27b704093c0b813f1",
-			"pnameid": "WAYF-DK-a7379f69e957371dc49350a27b704093c0b813f1",
-		},
-		"dev": {
-			"eptid":   "WAYF-DK-a7379f69e957371dc49350a27b704093c0b813f1",
-			"pnameid": "WAYF-DK-a7379f69e957371dc49350a27b704093c0b813f1",
-		},
-		"hybrid": {
-			"eptid":   "WAYF-DK-a7379f69e957371dc49350a27b704093c0b813f1",
-			"pnameid": "WAYF-DK-a7379f69e957371dc49350a27b704093c0b813f1",
+			"iss":     "123",
+			"exp":     "456",
 		},
 	}
+
+	stdAttributesTxt, stdAttributesJson string
+
 	resolv map[string]string
 	wg     sync.WaitGroup
 	tr     *http.Transport
@@ -163,61 +151,62 @@ var (
 
 func TestMain(m *testing.M) {
 	flag.Parse()
-	path := wayfhybrid.Env("WAYF_PATH", "/opt/wayf/")
-
-	config := wayfhybrid.Conf{}
-	tomlConfig, err := toml.LoadFile(path + "hybrid-config/hybrid-config.toml")
-
-	if err != nil { // Handle errors reading the config file
-		panic(fmt.Errorf("Fatal error config file: %s\n", err))
+	if !strings.ContainsAny(*hub, ".") {
+		*hubbe = *hub
+		*hub = "wayf.wayf.dk"
 	}
-	err = tomlConfig.Unmarshal(&config)
-	if err != nil {
-		panic(fmt.Errorf("Fatal error %s\n", err))
-	}
+
+	log.Printf("hub: %q backend: %q\n", *hub, *hubbe)
 
 	gosaml.AuthnRequestCookie = &gosaml.Hm{180, sha256.New, []byte("abcd")}
 
-	dohub = *do == "hub"
-	dobirk = *do == "birk"
-	log.Printf("do: %q hub: %q backend: %q birk: %q backend: %q\n", *do, *hubfe, *hubbe, *birk, *birkbe)
-
-	hub = &lmdq.MDQ{Path: "file:" + mdsources[*env]["hub"] + "?mode=ro", Table: "HYBRID_HUB"}
-	internal = &lmdq.MDQ{Path: "file:" + mdsources[*env]["internal"] + "?mode=ro", Table: "HYBRID_INTERNAL"}
-	externalIdP = &lmdq.MDQ{Path: "file:" + mdsources[*env]["externalIdP"] + "?mode=ro", Table: "HYBRID_EXTERNAL_IDP"}
-	externalSP = &lmdq.MDQ{Path: "file:" + mdsources[*env]["externalSP"] + "?mode=ro", Table: "HYBRID_EXTERNAL_SP"}
-	for _, md := range []gosaml.Md{hub, internal, externalIdP, externalSP} {
+	hubMd = &lmdq.MDQ{Path: "file:" + mdsources[*env]["hub"] + "?mode=ro", Table: "HYBRID_HUB"}
+	internalMd = &lmdq.MDQ{Path: "file:" + mdsources[*env]["internal"] + "?mode=ro", Table: "HYBRID_INTERNAL"}
+	externalIdPMd = &lmdq.MDQ{Path: "file:" + mdsources[*env]["externalIdP"] + "?mode=ro", Table: "HYBRID_EXTERNAL_IDP"}
+	externalSPMd = &lmdq.MDQ{Path: "file:" + mdsources[*env]["externalSP"] + "?mode=ro", Table: "HYBRID_EXTERNAL_SP"}
+	for _, md := range []gosaml.Md{hubMd, internalMd, externalIdPMd, externalSPMd} {
 		err := md.(*lmdq.MDQ).Open()
 		if err != nil {
 			panic(err)
 		}
 	}
 
-	//gosaml.Config.CertPath = "testdata/"
-	//wayfhybrid.Md = Md
-	//go wayfhybrid.Main()
-
 	// need non-birk, non-request.validate and non-IDPList SPs for testing ....
 	var numberOfTestSPs int
-	testSPs, numberOfTestSPs, _ = internal.MDQFilter("/md:EntityDescriptor/md:Extensions/wayf:wayf[wayf:federation='WAYF' and not(wayf:IDPList)]/../../md:SPSSODescriptor/..")
+	testSPs, numberOfTestSPs, _ = internalMd.MDQFilter("/md:EntityDescriptor/md:Extensions/wayf:wayf[wayf:federation='WAYF' and not(wayf:IDPList)]/../../md:SPSSODescriptor/..")
 	if numberOfTestSPs == 0 {
 		log.Fatal("No testSP candidates")
 	}
 
-	resolv = map[string]string{"wayf.wayf.dk:443": *hubfe + ":443", "birk.wayf.dk:443": *birk + ":443", "krib.wayf.dk:443": *hubfe + ":443", "ds.wayf.dk:443": *ds + ":443"}
+	resolv = map[string]string{"wayf.wayf.dk:443": *hub + ":443", "birk.wayf.dk:443": *hub + ":443", "krib.wayf.dk:443": *hub + ":443", "ds.wayf.dk:443": *ds + ":443"}
 
 	tr = &http.Transport{
-		TLSClientConfig:    &tls.Config{InsecureSkipVerify: true},
-		Dial:               func(network, addr string) (net.Conn, error) { return net.Dial(network, resolv[addr]) },
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		Dial: func(network, addr string) (net.Conn, error) {
+			return net.DialTimeout(network, resolv[addr], 3*time.Second)
+		},
 		DisableCompression: true,
+		/*
+		   DialContext: (&net.Dialer{
+		       Timeout: 3 * time.Second,
+		   }).DialContext,
+		*/
 	}
 
 	client = &http.Client{
 		Transport:     tr,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error { return errors.New("redirect-not-allowed") },
+		CheckRedirect: func(req *http.Request, via []*http.Request) error { return http.ErrUseLastResponse },
 	}
 
-	os.Exit(m.Run())
+	*do = "hub"
+	dohub = true
+	r := m.Run()
+
+	*do = "birk"
+	dohub = false
+	dobirk = true
+	r += m.Run()
+	os.Exit(r)
 }
 
 func (tp *Testparams) logxml(x interface{}) {
@@ -259,7 +248,7 @@ func stdoutend(t *testing.T, expected string) {
 	_ = tmpl.Execute(&b, templatevalues[*env])
 	expected = b.String()
 	if expected == "" {
-		//		t.Errorf("unexpected empty expected string\n")
+		//      t.Errorf("unexpected empty expected string\n")
 	}
 	if expected != got {
 		t.Errorf("\nexpected:\n%s\ngot:\n%s\n", expected, got)
@@ -273,18 +262,24 @@ func Newtp(overwrite *overwrites) (tp *Testparams) {
 	if tp.Privatekeypw == "" {
 		log.Fatal("no PW environment var")
 	}
+	tp.Method = "GET"
 	tp.Env = *env
 	tp.Hub = dohub
 	tp.Birk = dobirk
 	tp.Trace = *trace
 	tp.Logxml = *logxml
 	tp.Hashalgorithm = "sha256"
+	tp.Hybrid = "wayf.wayf.dk"
 	tp.ElementsToSign = []string{"saml:Assertion[1]"}
-    tp.SAML2jwt = "https://wayf.wayf.dk/saml2jwt"
+	tp.SAML2jwt = "https://wayf.wayf.dk/saml2jwt"
+	tp.Jwt2SAML = "https://wayf.wayf.dk/jwt2saml"
 	tp.Idp = "https://this.is.not.a.valid.idp"
-	tp.FinalIdp = tp.Idp
 	SP := "https://wayfsp.wayf.dk"
-	tp.Spmd, _ = internal.MDQ(SP)
+	tp.Spmd, _ = internalMd.MDQ(SP)
+
+	tp.Cookiejar = make(map[string]map[string]*http.Cookie)
+	tp.Cookiejar["wayf.dk"] = make(map[string]*http.Cookie)
+	tp.Cookiejar["wayf.dk"]["wayfid"] = &http.Cookie{Name: "wayfid", Value: *hubbe}
 
 	if overwrite != nil { // overwrite default values with test specific values while it still matters
 		for k, v := range *overwrite {
@@ -292,32 +287,24 @@ func Newtp(overwrite *overwrites) (tp *Testparams) {
 		}
 	}
 
+	tp.FinalIdp = tp.Idp
 	tp.SP = tp.Spmd.Query1(nil, "@entityID")
-
-	// don't use urn:... entityID'ed IdPs for now
-	tp.BirkIdp = tp.Idp // regexp.MustCompile("^(https?://)(.*)$").ReplaceAllString(tp.Idp, "${1}birk.wayf.dk/birk.php/$2")
-	tp.Hubidpmd, _ = hub.MDQ("https://wayf.wayf.dk")
+	tp.Hubidpmd, _ = hubMd.MDQ("https://wayf.wayf.dk")
 	tp.Hubspmd = tp.Hubidpmd
-	tp.Idpmd, _ = internal.MDQ(tp.Idp)
-	tp.Birkmd, _ = externalIdP.MDQ(tp.BirkIdp)
+	tp.Idpmd, _ = internalMd.MDQ(tp.Idp)
+	if tp.Idpmd == nil {
+		tp.Idpmd, _ = externalIdPMd.MDQ(tp.Idp) // might be an external
+	}
+	tp.Birkmd, _ = externalIdPMd.MDQ(tp.Idp)
 
-	tp.DSIdpentityID = tp.Idp
 	switch *do {
 	case "hub":
 		tp.Firstidpmd = tp.Hubidpmd
-		tp.DSIdpentityID = tp.BirkIdp
 	case "birk":
 		tp.Firstidpmd = tp.Birkmd
 	}
 
-	tp.Cookiejar = make(map[string]map[string]*http.Cookie)
-	tp.Cookiejar["wayf.dk"] = make(map[string]*http.Cookie)
-	tp.Cookiejar["wayf.dk"]["wayfid"] = &http.Cookie{Name: "wayfid", Value: *hubbe}
-	//tp.Cookiejar["wayf.dk"] = make(map[string]*http.Cookie)
-	tp.Cookiejar["wayf.dk"]["birkid"] = &http.Cookie{Name: "birkid", Value: *birkbe}
-
 	tp.Attributestmt = newAttributeStatement(testAttributes)
-
 	cert := tp.Idpmd.Query1(nil, `//md:KeyDescriptor[@use="signing" or not(@use)]/ds:KeyInfo/ds:X509Data/ds:X509Certificate`)
 	if cert == "" {
 		fmt.Errorf("Could not find signing cert for: %s", tp.Idpmd.Query1(nil, "/@entityID"))
@@ -349,14 +336,14 @@ func Newtp(overwrite *overwrites) (tp *Testparams) {
 func newAttributeStatement(attrs map[string][]string) (ats *goxml.Xp) {
 	template := `<saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xs="http://www.w3.org/2001/XMLSchema">
 <saml:Subject>
-	<saml:NameID Format="urn:oasis:names:tc:SAML:2.0:nameid-format:transient"></saml:NameID>
+    <saml:NameID Format="urn:oasis:names:tc:SAML:2.0:nameid-format:transient"></saml:NameID>
 </saml:Subject>
 <saml:AuthnStatement>
-	<saml:AuthnContext>
-		<saml:AuthnContextClassRef>
-			urn:oasis:names:tc:SAML:2.0:ac:classes:Password
-		</saml:AuthnContextClassRef>
-	</saml:AuthnContext>
+    <saml:AuthnContext>
+        <saml:AuthnContextClassRef>
+            urn:oasis:names:tc:SAML:2.0:ac:classes:Password
+        </saml:AuthnContextClassRef>
+    </saml:AuthnContext>
 </saml:AuthnStatement>
 <saml:AttributeStatement/>
 </saml:Assertion>`
@@ -381,62 +368,61 @@ func newAttributeStatement(attrs map[string][]string) (ats *goxml.Xp) {
 }
 
 func SAML2jwtDo(service string, v url.Values) (resp *http.Response, err error) {
-
-    dialer := &net.Dialer{
-        Timeout:   30 * time.Second,
-        KeepAlive: 30 * time.Second,
-        DualStack: true,
-    }
-
-	client := &http.Client{
-		Transport: &http.Transport{
-		    TLSClientConfig: &tls.Config{InsecureSkipVerify: insecureTLS},
-        		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-                if tmp, ok := resolv[addr]; ok {
-                    addr = tmp
-                }
-                return dialer.DialContext(ctx, network, addr)
-            },
-	    },
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
 	body := strings.NewReader(v.Encode())
 	req, _ := http.NewRequest("POST", service, body)
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Add("Cookie", "wayfid=wayf-qa")
 	resp, err = client.Do(req)
 	return
 }
 
 func (tp *Testparams) SAML2jwtRequest() (u *url.URL) {
-    acs := []string{tp.Initialrequest.Query1(nil, "./@AssertionConsumerServiceURL")}
-    issuer := []string{tp.Initialrequest.Query1(nil, "saml:Issuer")}
+	acs := []string{tp.Initialrequest.Query1(nil, "./@AssertionConsumerServiceURL")}
+	issuer := []string{tp.Initialrequest.Query1(nil, "saml:Issuer")}
 	resp, _ := SAML2jwtDo(tp.SAML2jwt, url.Values{"acs": acs, "issuer": issuer})
 	location := resp.Header.Get("location")
 	u, _ = url.Parse(location)
-    return
+	return
 }
 
-func SAML2jwtResponse(service string, v url.Values) {
-/*
-	resp, _ := SAML2jwtDo(service, v)
-		body, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			return nil, err
-		}
+func (tp *Testparams) SAML2jwtResponse(data url.Values) (attrs map[string]interface{}) {
+	acs := tp.Initialrequest.Query1(nil, "./@AssertionConsumerServiceURL")
+	issuer := tp.Initialrequest.Query1(nil, "saml:Issuer")
+	data.Set("acs", acs)
+	data.Set("issuer", issuer)
+	resp, _ := SAML2jwtDo(tp.SAML2jwt, data)
+	body, _ := ioutil.ReadAll(resp.Body)
 	resp.Body.Close()
 	headerPayloadSignature := strings.SplitN(string(body), ".", 3)
 	payload, _ := base64.RawURLEncoding.DecodeString(headerPayloadSignature[1])
-	var attrs map[string]interface{}
-	err = json.Unmarshal(payload, &attrs)
-	if err != nil {
-		return nil, err
+	json.Unmarshal(payload, &attrs)
+	for _, v := range []string{"iat", "exp", "nbf"} { // delete timestamps - changes all the time ..
+		attrs[v] = "1234"
 	}
-	return attrs, nil
-*/
+	return
+}
+
+func (tp *Testparams) Jwt2SAMLDo(v url.Values) (err error) {
+	req, err := http.NewRequest("GET", tp.Jwt2SAML+"?"+v.Encode(), nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		return
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return
+	}
+
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return fmt.Errorf(string(body))
+	}
+	if len(v["jwt"]) != 0 {
+		tp.Newresponse, tp.RelayState = gosaml.HTML2SAMLResponse(body)
+	} else {
+		tp.Jwt2SAMLResponse = string(body)
+	}
+	return
 }
 
 func sp(m modsset, overwrite interface{}) (tp *Testparams, u *url.URL) {
@@ -448,188 +434,211 @@ func sp(m modsset, overwrite interface{}) (tp *Testparams, u *url.URL) {
 	case nil:
 		tp = Newtp(nil)
 	}
-	tp.Initialrequest, _ = gosaml.NewAuthnRequest(nil, tp.Spmd, tp.Firstidpmd, tp.IdpentityID, []string{tp.IdpentityID}, "", false, 0, 0)
-
-    u = tp.SAML2jwtRequest()
-    return
-
-	ApplyMods(tp.Attributestmt, m["attributemods"])
-	ApplyMods(tp.Initialrequest, m["requestmods"])
-	u, _ = gosaml.SAMLRequest2URL(tp.Initialrequest, "", "", "", "")
+	tp.Initialrequest, _ = gosaml.NewAuthnRequest(nil, tp.Spmd, tp.Firstidpmd, "", []string{}, "", false, 0, 0)
+	if tp.SAML2jwtDoRequest {
+		u = tp.SAML2jwtRequest()
+	} else {
+		ApplyModsXp(tp.Attributestmt, m["attributemods"])
+		ApplyModsXp(tp.Initialrequest, m["requestmods"])
+		u, _ = gosaml.SAMLRequest2URL(tp.Initialrequest, "", "", "", "")
+		applyModsQuery(u, m["querymods"])
+		applyModsCookie(tp, m["cookiemods"])
+	}
 	return
 }
 
 // Does what the browser does follow redirects and POSTs and displays errors
 func browse(m modsset, overwrite interface{}) (tp *Testparams) {
-	var htmlresponse *goxml.Xp
+	var data url.Values
 	tp, u := sp(m, overwrite)
-	stage := map[string]string{"hub": "wayf.wayf.dk", "birk": "wayf.wayf.dk"}[*do]
 	// when to stop
 	finalDestination, _ := url.Parse(tp.Initialrequest.Query1(nil, "./@AssertionConsumerServiceURL"))
 	finalIdp, _ := url.Parse(tp.FinalIdp)
 	redirects := 7
-	method := "GET"
+	phase := requesting
 	body := ""
 	for {
-		redirects--
-		if redirects == 0 { // if we go wild ...
-			return
-		}
-		if method == "POST" {
+		if phase == responding {
 			tp.logxml(tp.Newresponse)
 			acs := tp.Newresponse.Query1(nil, "@Destination")
 			u, _ = url.Parse(acs)
-			//q.Q(u, finalDestination)
-			if u.Host == finalDestination.Host {
-				tp.ConsentGiven = strings.Contains(htmlresponse.PP(), `,"BypassConfirmation":false`)
-				tp.logxml(tp.Newresponse)
-				err := ValidateSignature(tp.Firstidpmd, tp.Newresponse)
-				if err != nil {
-					fmt.Printf("signature errors: %s\n", err)
-				}
+			if u.Host == tp.Hybrid { // only change the response to the place we are actually testing (wayf|krib).wayf.dk
+				ApplyModsXp(tp.Newresponse, m["responsemods"])
+			}
+			data = url.Values{
+				"SAMLResponse": []string{base64.StdEncoding.EncodeToString([]byte(tp.Newresponse.Doc.Dump(false)))},
+				"RelayState":   []string{tp.RelayState},
+			}
+			body = data.Encode()
+			if u.Host == finalDestination.Host { // why down her - SAML2jwt needs data to be set
 				break
 			}
-			if u.Host == stage { // only change the response to the place we are actually testing (wayf|birk|krib).wayf.dk
-				ApplyMods(tp.Newresponse, m["responsemods"])
-			}
-
-			data := url.Values{}
-			data.Set("SAMLResponse", base64.StdEncoding.EncodeToString([]byte(tp.Newresponse.Doc.Dump(false))))
-			body = data.Encode()
-			//log.Println("SAMLResponse", tp.Newresponse.PP())
 		} else {
 			tp.logxml(u)
-		}
-
-		//q.Q("u", method, redirects, u)
-		tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, method, body, tp.Cookiejar)
-		if tp.Err != nil {
-			switch tp.Err.(type) {
-			case *url.Error:
-				log.Panic()
-			default:
-				q.Q(tp.Err)
-				return nil
+			if tp.Method == "POST" { // reencode with no deflation !!!
+				data = u.Query()
+				req, _ := base64.StdEncoding.DecodeString(data["SAMLRequest"][0])
+				data["SAMLRequest"][0] = base64.StdEncoding.EncodeToString([]byte(gosaml.Inflate(req)))
+				body = data.Encode()
+				u.RawQuery = ""
 			}
 		}
-		htmlresponse = goxml.NewHTMLXp(tp.Responsebody)
-		// delete stuff that just  takes too much space when debugging
-		tp.Resp.TLS = nil
-		tp.Resp.Body = nil
-		//q.Q("resp", tp, tp.Err, tp.Resp, string(tp.Responsebody))
-		if u, _ = tp.Resp.Location(); u != nil { // we don't care about the StatusCode - Location means redirect
+		tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Method, body)
+		if tp.Err != nil {
+			fmt.Println(u.Host, u.Path)
+			return nil
+			//log.Panic(tp.Err)
+		}
+		if u, _ = tp.Resp.Location(); u != nil { // Redirecting - we don't care about the StatusCode - Location means redirect
 			if tp.Err == nil {
 				query := u.Query()
 				// we got to a discoveryservice - choose our testidp
 				if len(query["return"]) > 0 && len(query["returnIDParam"]) > 0 {
 					u, _ = url.Parse(query["return"][0])
 					q := u.Query()
-					q.Set(query["returnIDParam"][0], tp.DSIdpentityID)
+					q.Set(query["returnIDParam"][0], tp.Idp)
 					u.RawQuery = q.Encode()
-				} else if strings.Contains(u.Path, "getconsent.php") { // hub consent
-					u.RawQuery = u.RawQuery + "&yes=1"
-					tp.ConsentGiven = true
+					tp.PassedDisco = true
 				}
 			}
-			//q.Q(u.Host, finalIdp.Host)
-			if u.Host != finalIdp.Host {
-				method = "GET"
-				body = ""
-			} else { // we have reached our IdP
-				tp.newresponse(u)
-				method = "POST"
+			if u.Host == finalIdp.Host {
+				err := tp.newresponse(u)
+				if err != nil {
+				    return nil
+				}
+				tp.Method = "POST"
+				phase = responding
 			}
 			continue
 		}
 		if tp.Resp.StatusCode == 500 {
-			error := ""
-			if tp.Resp.Header.Get("content-type") == "text/html" { // hub errors
-				error = htmlresponse.Query1(nil, `//a[@id="errormsg"]/text()`)
-			} else { // birk & krib errors
-				error = string(tp.Responsebody)
-				error = regexp.MustCompile("^\\d* ").ReplaceAllString(error, "")
-			}
-			fmt.Println(strings.Trim(error, "\n "))
 			break
 		} else {
 			tp.Newresponse, _ = gosaml.HTML2SAMLResponse(tp.Responsebody)
-			if tp.Newresponse.Query1(nil, ".") == "" { // from old hub - disjoint federations
-				fmt.Println("unknown error")
-				break
-			}
-			method = "POST"
+		}
+		redirects--
+		if redirects == 0 { // if we go wild ...
+			return
 		}
 	}
+	// back to the SP or we got an error
+	if tp.Resp.StatusCode == 500 {
+		error := string(tp.Responsebody)
+		//error = regexp.MustCompile("^\\d* ").ReplaceAllString(error, "")
+		fmt.Println(strings.Trim(error, "\n "))
+		return nil
+	} else {
+		tp.ConsentGiven = strings.Contains(string(tp.Responsebody), `,"BypassConfirmation":false`)
+		tp.logxml(tp.Newresponse)
+		if tp.SAML2jwtDoResponse {
+			attrs := tp.SAML2jwtResponse(data)
+			PP(attrs)
+		} else {
+			err := ValidateSignature(tp.Firstidpmd, tp.Newresponse)
+			if err != nil {
+				fmt.Printf("signature errors: %s\n", err)
+			}
+		}
+	}
+
 	if tp.Trace {
 		log.Println()
 	}
+	tp.Resp = nil // can't jsonify tp.Resp
 	return
 }
 
-func (tp *Testparams) newresponse(u *url.URL) {
+func (tp *Testparams) newresponse(u *url.URL) (err error) {
 	// get the SAMLRequest
 	query := u.Query()
+	tp.RelayState = query.Get("RelayState")
 	req, _ := base64.StdEncoding.DecodeString(query["SAMLRequest"][0])
-	authnrequest := goxml.NewXp(gosaml.Inflate(req))
+	tp.FinalRequest = goxml.NewXp(gosaml.Inflate(req))
 
-	tp.logxml(authnrequest)
+	tp.logxml(tp.FinalRequest)
 
 	switch tp.FinalIdp {
 	case "https://login.test-nemlog-in.dk":
 		tp.Newresponse = goxml.NewXpFromFile("testdata/nemlogin.encryptedresponse.xml")
 		tp.logxml(tp.Newresponse)
 
-	case "https://this.is.not.a.valid.idp":
-		// create a response
-		tp.Newresponse = gosaml.NewResponse(tp.Idpmd, tp.Hubspmd, authnrequest, tp.Attributestmt)
-		wayfhybrid.CopyAttributes(tp.Attributestmt, tp.Newresponse, tp.Hubspmd)
+		//  case "https://this.is.not.a.valid.idp":
+	default:
+		if tp.Jwt2SAMLDoRequest {
+			//tp.logxml(tp.Newresponse)
+			query := u.Query()
+			query.Add("sso", tp.FinalRequest.Query1(nil, "@Destination"))
 
-		for _, xpath := range tp.ElementsToSign {
-			element := tp.Newresponse.Query(nil, xpath)[0]
-			before := tp.Newresponse.Query(element, "*[2]")[0]
-			err := tp.Newresponse.Sign(element.(types.Element), before.(types.Element), []byte(tp.Privatekey), []byte(tp.Privatekeypw), tp.Certificate, tp.Hashalgorithm)
+			err = tp.Jwt2SAMLDo(query)
 			if err != nil {
-				//				q.Q("Newresponse", err.(goxml.Werror).Stack(2))
-				log.Fatal(err)
-			}
-		}
-
-		//tp.logxml(tp.Newresponse)
-
-		if tp.Encryptresponse {
-			assertion := tp.Newresponse.Query(nil, "saml:Assertion[1]")[0]
-			cert := tp.Hubspmd.Query1(nil, `//md:KeyDescriptor[@use="encryption" or not(@use)]/ds:KeyInfo/ds:X509Data/ds:X509Certificate`)
-			if cert == "" {
-				fmt.Errorf("Could not find encryption cert for: %s", tp.Hubspmd.Query1(nil, "/@entityID"))
+			    return
 			}
 
-			_, publickey, _ := gosaml.PublicKeyInfo(cert)
+			attrs := map[string]interface{}{}
+			for k, v := range testAttributes {
+				attrs[k] = v
+			}
+			attrs["iat"] = time.Now().Unix()
 
-			if tp.Env == "xdev" {
-				cert, err := ioutil.ReadFile(*testcertpath)
-				pk, err := x509.ParseCertificate(cert)
+			body, err := json.Marshal(attrs)
+			if err != nil {
+				return err
+			}
+
+			payload := base64.RawURLEncoding.EncodeToString(body)
+			header := map[string]string{"sha256": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.", "sha512": "eyJhbGciOiJSUzUxMiIsInR5cCI6IkpXVCJ9."}[tp.Hashalgorithm]
+			signature, err := goxml.Sign([]byte(goxml.Hash(goxml.Algos[tp.Hashalgorithm].Algo, header+payload)), []byte(tp.Privatekey), []byte(tp.Privatekeypw), tp.Hashalgorithm)
+			query.Add("jwt", header+payload+"."+base64.RawURLEncoding.EncodeToString(signature))
+			err = tp.Jwt2SAMLDo(query)
+			if err != nil {
+			    return err
+			}
+
+		} else {
+			// create a response
+			tp.Newresponse = gosaml.NewResponse(tp.Idpmd, tp.Hubspmd, tp.FinalRequest, nil)
+			attrStmt := tp.Attributestmt.Query(nil, "//saml:AttributeStatement")[0]
+			tp.Newresponse.Query(nil, "/samlp:Response/saml:Assertion")[0].AddChild(tp.Newresponse.CopyNode(attrStmt, 1))
+
+			for _, xpath := range tp.ElementsToSign {
+				element := tp.Newresponse.Query(nil, xpath)[0]
+				before := tp.Newresponse.Query(element, "*[2]")[0]
+				err := tp.Newresponse.Sign(element.(types.Element), before.(types.Element), []byte(tp.Privatekey), []byte(tp.Privatekeypw), tp.Certificate, tp.Hashalgorithm)
 				if err != nil {
-					return
+					//              q.Q("Newresponse", err.(goxml.Werror).Stack(2))
+					log.Fatal(err)
 				}
-				publickey = pk.PublicKey.(*rsa.PublicKey)
 			}
 
-			ea := goxml.NewXpFromString(`<saml:EncryptedAssertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"></saml:EncryptedAssertion>`)
-			err := tp.Newresponse.Encrypt(assertion.(types.Element), publickey, ea)
-			if err != nil {
-				log.Fatal(err)
-			}
-			tp.Encryptresponse = false // for now only possible for idp -> hub
+			//tp.logxml(tp.Newresponse)
 
-			tp.logxml(tp.Newresponse)
+			if tp.Encryptresponse {
+				assertion := tp.Newresponse.Query(nil, "saml:Assertion[1]")[0]
+				cert := tp.Hubspmd.Query1(nil, `//md:KeyDescriptor[@use="encryption" or not(@use)]/ds:KeyInfo/ds:X509Data/ds:X509Certificate`)
+				if cert == "" {
+					fmt.Errorf("Could not find encryption cert for: %s", tp.Hubspmd.Query1(nil, "/@entityID"))
+				}
+
+				_, publickey, _ := gosaml.PublicKeyInfo(cert)
+
+				ea := goxml.NewXpFromString(`<saml:EncryptedAssertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"></saml:EncryptedAssertion>`)
+				err := tp.Newresponse.Encrypt(assertion.(types.Element), publickey, ea)
+				if err != nil {
+					log.Fatal(err)
+				}
+				tp.Encryptresponse = false // for now only possible for idp -> hub
+
+				tp.logxml(tp.Newresponse)
+			}
 		}
 	}
+	return
 }
 
 // SendRequest sends a http request - GET or POST using the supplied url, server, method and cookies
 // It updates the cookies and returns a http.Response and a posssible response body and error
 // The server parameter contains the dns name of the actual server, which should respond to the host part of the url
-func (tp *Testparams) sendRequest(url *url.URL, method, body string, cookies map[string]map[string]*http.Cookie) (resp *http.Response, responsebody []byte, err error) {
+func (tp *Testparams) sendRequest(url *url.URL, method, body string) (resp *http.Response, responsebody []byte, err error) {
 	var payload io.Reader
 	if method == "POST" {
 		payload = strings.NewReader(body)
@@ -639,7 +648,7 @@ func (tp *Testparams) sendRequest(url *url.URL, method, body string, cookies map
 	cookiedomain := "wayf.dk"
 	req, err := http.NewRequest(method, url.String(), payload)
 
-	for _, cookie := range cookies[cookiedomain] {
+	for _, cookie := range tp.Cookiejar[cookiedomain] {
 		req.AddCookie(cookie)
 	}
 
@@ -652,42 +661,31 @@ func (tp *Testparams) sendRequest(url *url.URL, method, body string, cookies map
 	resp, err = client.Do(req)
 	if err != nil && !strings.HasSuffix(err.Error(), "redirect-not-allowed") {
 		// we need to do the redirect ourselves so a self inflicted redirect "error" is not an error
-		log.Println(err)
-		debug.PrintStack()
-		return nil, nil, errors.New("emit macho dwarf: elf header corrupted")
-		//log.Fatalln("client.do", err)
+		// debug.PrintStack()
+		return nil, nil, err
+	}
+	for _, cookie := range resp.Cookies() {
+		tp.Cookiejar[cookiedomain][cookie.Name] = cookie
 	}
 
-	location, _ := resp.Location()
-	loc := ""
-	if location != nil {
-		loc = location.Host + location.Path
-	}
-
-	setcookies := resp.Cookies()
-	for _, cookie := range setcookies {
-		if cookies[cookiedomain] == nil {
-			cookies[cookiedomain] = make(map[string]*http.Cookie)
-		}
-		cookies[cookiedomain][cookie.Name] = cookie
-	}
-
-	// We can't get to the body if we got a redirect pseudo error above
-	if err == nil {
-		responsebody, err = ioutil.ReadAll(resp.Body)
-		defer resp.Body.Close()
-	}
+	responsebody, err = ioutil.ReadAll(resp.Body)
+	defer resp.Body.Close()
 
 	// We didn't get a Location: header - we are POST'ing a SAMLResponse
-	if loc == "" {
+	var loc string
+	location, _ := resp.Location()
+	if location == nil {
 		response := goxml.NewHTMLXp(responsebody)
 		samlbase64 := response.Query1(nil, `//input[@name="SAMLResponse"]/@value`)
+		tp.RelayState = response.Query1(nil, `//input[@name="RelayState"]/@value`)
 		if samlbase64 != "" {
 			samlxml, _ := base64.StdEncoding.DecodeString(samlbase64)
 			samlresponse := goxml.NewXp(samlxml)
 			u, _ := url.Parse(samlresponse.Query1(nil, "@Destination"))
 			loc = u.Host + u.Path
 		}
+	} else {
+		loc = location.Host + location.Path
 	}
 
 	if tp.Trace {
@@ -699,35 +697,49 @@ func (tp *Testparams) sendRequest(url *url.URL, method, body string, cookies map
 	return
 }
 
-// ApplyMods changes a SAML message by applying an array of xpath expressions and a value
+// ApplyModsXp changes a SAML message by applying an array of xpath expressions and a value
 //     If the value is "" the nodes are unlinked
 //     if the value starts with "+ " the the node content is prefixed with the rest of the value
 //     Otherwise the node content is replaced with the value
-func ApplyMods(xp *goxml.Xp, m mods) {
+func ApplyModsXp(xp *goxml.Xp, m mods) {
 	for _, change := range m {
-		if change.function != nil {
-			change.function(xp)
-		} else if change.value == "" {
-			//log.Printf("changeval: '%s'\n", change.value)
-			for _, element := range xp.Query(nil, change.path) {
-				//log.Printf("unlink: %s\n", change.path)
+		if change.Function != nil {
+			//change.Function(xp)
+		} else if change.Value == "" {
+			for _, element := range xp.Query(nil, change.Path) {
 				parent, _ := element.ParentNode()
 				parent.RemoveChild(element)
 				defer element.Free()
 			}
-		} else if strings.HasPrefix(change.value, "+ ") {
-			for _, value := range xp.QueryMulti(nil, change.path) {
-				xp.QueryDashP(nil, change.path, change.value[2:]+value, nil)
+		} else if strings.HasPrefix(change.Value, "+ ") {
+			for _, value := range xp.QueryMulti(nil, change.Path) {
+				xp.QueryDashP(nil, change.Path, change.Value[2:]+value, nil)
 			}
-		} else if strings.HasPrefix(change.value, "- ") {
-			for _, value := range xp.QueryMulti(nil, change.path) {
-				xp.QueryDashP(nil, change.path, value+change.value[2:], nil)
+		} else if strings.HasPrefix(change.Value, "- ") {
+			for _, value := range xp.QueryMulti(nil, change.Path) {
+				xp.QueryDashP(nil, change.Path, value+change.Value[2:], nil)
 			}
 		} else {
-			xp.QueryDashP(nil, change.path, change.value, nil)
+			xp.QueryDashP(nil, change.Path, change.Value, nil)
 		}
 	}
 	//q.Q(string(xp.PP()))
+}
+
+// keep it simple for now
+func applyModsQuery(u *url.URL, m mods) {
+	q := u.Query()
+	for _, change := range m {
+		q.Set(change.Path, change.Value)
+	}
+	u.RawQuery = q.Encode()
+}
+
+// keep it simple for now
+func applyModsCookie(tp *Testparams, m mods) {
+	for _, change := range m {
+		tp.Cookiejar["wayf.dk"][change.Path] = &http.Cookie{Name: change.Path, Value: change.Value}
+	}
 }
 
 func ValidateSignature(md, xp *goxml.Xp) (err error) {
@@ -753,6 +765,18 @@ func ValidateSignature(md, xp *goxml.Xp) (err error) {
 	return
 }
 
+
+func TestSPSLO(t *testing.T) {
+	stdoutstart()
+	res := browse(nil, nil)
+	expected := `https://wayfsp.wayf.dk
+`
+	fmt.Println(res.FinalRequest.Query1(nil, "samlp:Scoping/samlp:RequesterID"))
+	stdoutend(t, expected)
+}
+
+
+
 // TestAttributeNameFormat tests if the hub delivers the attributes in the correct format - only one (or none) is allowed
 // Currently if none is specified we deliver both but lie about the format so we say that it is basic even though it actually is uri
 // As PHPH always uses uri we just count the number of RequestedAttributes
@@ -773,130 +797,166 @@ func TestAttributeNameFormat(t *testing.T) {
 
 	for _, attrname := range attrnameformats {
 		eID := testSPs.Query1(nil, attrnameformatqueries[attrname])
-		md, _ := internal.MDQ(eID)
+		md, _ := internalMd.MDQ(eID)
 		if md == nil {
 			log.Fatalln("No SP found for testing attributenameformat: ", attrname)
 		}
-		tp := browse(nil, &overwrites{"Spmd": md})
+		tp := browse(nil, &overwrites{"Spmd": md, "SAML2jwtDoRequest": false})
 		if tp != nil {
-			//samlresponse := HTML2SAMLResponse(tp)
 			requested := md.QueryNumber(nil, mdcount)
 			uricount := tp.Newresponse.QueryNumber(nil, ascounturi)
 			basiccount := tp.Newresponse.QueryNumber(nil, ascountbasic)
-			fmt.Printf("%t %t %t\n", basiccount == requested*2, uricount == requested, basiccount == requested)
-			//fmt.Printf("requested %d uri %d basic %d\n", requested, uricount, basiccount)
+			fmt.Printf("%t %t\n", uricount == requested, basiccount == requested)
 		}
 	}
-	expected := ""
-	if dohub || dobirk {
-		expected += `false true false
-false false true
+	expected := `true false
+false true
 `
-	}
 	stdoutend(t, expected)
 }
 
-// TestMultipleSPs tests just test a lot of SPs - if any fails signature validation it fails
-func xTestMultipleSPs(t *testing.T) {
+func xTestPostingRequest(t *testing.T) {
 	stdoutstart()
-
-	spquery := "/*/*/@entityID"
-
-	eIDs := testSPs.QueryMulti(nil, spquery)
-
-	for _, eID := range eIDs {
-		log.Println("eID", eID)
-		md, _ := internal.MDQ(eID)
-		if md == nil {
-			log.Fatalln("No SP found for testing multiple SPs: ", eID)
-		}
-		if md.Query1(nil, "./md:Extensions/wayf:wayf/wayf:feds[.='eduGAIN']") == "eduGAIN" {
-			continue
-		}
-		if md.Query1(nil, "./md:Extensions/wayf:wayf/wayf:feds[.='WAYF']") == "" {
-			continue
-		}
-		log.Println("eID", eID)
-		browse(nil, &overwrites{"Spmd": md})
-	}
-
-	expected := ""
-	stdoutend(t, expected)
-}
-
-// TestDigestMethodSha1 tests that the Signature|DigestMethod is what the sp asks for
-func xTestDigestMethodSendingSha1(t *testing.T) {
-	stdoutstart()
-	expected := ""
-	entitymd, _ := internal.MDQ("https://metadata.wayf.dk/PHPh")
-
-	tp := browse(nil, &overwrites{"Spmd": entitymd})
-	if tp != nil {
-		samlresponse, _ := gosaml.HTML2SAMLResponse(tp.Responsebody)
-		signatureMethod := samlresponse.Query1(nil, "//ds:SignatureMethod/@Algorithm")
-		digestMethod := samlresponse.Query1(nil, "//ds:DigestMethod/@Algorithm")
-		fmt.Printf("%s\n%s\n", signatureMethod, digestMethod)
-		expected += `http://www.w3.org/2000/09/xmldsig#rsa-sha1
-http://www.w3.org/2000/09/xmldsig#sha1
+	m := modsset{"requestmods": mods{mod{"./samlp:Scoping/samlp:IDPList/samlp:IDPEntry/@ProviderID", "https://this.is.not.a.valid.idp", nil}}}
+	res := browse(m, &overwrites{"Method": "POST"})
+	expected := `https://wayfsp.wayf.dk
 `
+	fmt.Println(res.FinalRequest.Query1(nil, "samlp:Scoping/samlp:RequesterID"))
+	stdoutend(t, expected)
+}
+
+func TestRequesterID(t *testing.T) {
+	stdoutstart()
+	res := browse(nil, nil)
+	expected := `https://wayfsp.wayf.dk
+`
+	fmt.Println(res.FinalRequest.Query1(nil, "samlp:Scoping/samlp:RequesterID"))
+	stdoutend(t, expected)
+}
+
+func TestJwt2SAML(t *testing.T) {
+	stdoutstart()
+	res := browse(nil, &overwrites{"Jwt2SAMLDoRequest": true})
+	expected := `{
+  "AssertionConsumerServiceURL": [
+    "https://wayf.wayf.dk/module.php/saml/sp/saml2-acs.php/wayf.wayf.dk"
+  ],
+  "Issuer": [
+    "https://wayf.wayf.dk"
+  ],
+  "RequesterID": [
+    "https://wayfsp.wayf.dk"
+  ],
+  "commonfederations": [
+    "true"
+  ],
+  "hub": [
+    "true"
+  ],
+  "idpfeds": [
+    "WAYF",
+    "HUBIDP",
+    "oes.dk"
+  ],
+  "spfeds": [
+    "WAYF"
+  ]
+} https://wayfsp.wayf.dk
+`
+    if res != nil {
+        	fmt.Println(res.Jwt2SAMLResponse, res.FinalRequest.Query1(nil, "samlp:Scoping/samlp:RequesterID"))
 	}
 	stdoutend(t, expected)
 }
 
-// TestDigestMethodSha256_1 tests that the Signature|DigestMethod is what the sp asks for
-func TestDigestMethodSendingSha256(t *testing.T) {
+func TestKrib(t *testing.T) {
+	if dobirk {
+		return
+	}
+	stdoutstart()
+	m := modsset{"requestmods": mods{mod{"./samlp:Scoping/samlp:IDPList/samlp:IDPEntry/@ProviderID", "https://this.is.not.a.valid.external.idp", nil}}}
+	res := browse(m, &overwrites{"Idp": "https://this.is.not.a.valid.external.idp"})
+	fmt.Printf("%t", res.PassedDisco)
+	expected := "false"
+	stdoutend(t, expected)
+}
+
+func TestModst(t *testing.T) {
+	if dohub {
+		return
+	}
+	expected := `eduPersonAssurance https://modst.dk/sso/claims/assurancelevel https://modst.dk/sso/claims
+    2
+eduPersonPrincipalName http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name https://modst.dk/sso/claims
+    joe@this.is.not.a.valid.idp
+eduPersonPrincipalName https://modst.dk/sso/claims/userid https://modst.dk/sso/claims
+    joe@this.is.not.a.valid.idp
+entryUUID https://modst.dk/sso/claims/uniqueid https://modst.dk/sso/claims
+    entryUUID
+gn https://modst.dk/sso/claims/givenname https://modst.dk/sso/claims
+    Anton Banton &lt;SamlRequest id=&#34;abc&#34;&gt;abc&lt;/SamlRequest&gt;
+mail https://modst.dk/sso/claims/email https://modst.dk/sso/claims
+    joe@example.com
+modstlogonmethod https://modst.dk/sso/claims/logonmethod https://modst.dk/sso/claims
+    username-password-protected-transport
+oioCvrNumberIdentifier https://modst.dk/sso/claims/cvr https://modst.dk/sso/claims
+    12345678
+sn https://modst.dk/sso/claims/surname https://modst.dk/sso/claims
+    Cantonsen
+`
+	stdoutstart()
+	md, _ := internalMd.MDQ("https://sso.modst.dk/runtime/")
+	res := browse(nil, &overwrites{"Spmd": md})
+	if res != nil {
+		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
+	}
+
+	stdoutend(t, expected)
+}
+
+func TestAdobe(t *testing.T) {
+	if dobirk {
+		return
+	}
+	expected := `gn FirstName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    Anton Banton &lt;SamlRequest id=&#34;abc&#34;&gt;abc&lt;/SamlRequest&gt;
+mail Email urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    joe@example.com
+sn LastName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    Cantonsen
+`
+	stdoutstart()
+	m := modsset{"cookiemods": mods{mod{"testidp", "https://this.is.not.a.valid.idp", nil}}}
+	md, _ := internalMd.MDQ("https://federatedid-na1.services.adobe.com/federated/saml/metadata/alias/8e858103-4714-4d50-a03d-c52a7e0b6314")
+	res := browse(m, &overwrites{"Spmd": md})
+	if res != nil {
+		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
+	}
+	stdoutend(t, expected)
+}
+
+// TestDigestMethods tests that the hub can receive the algos and that the Signature|DigestMethod is what the sp asks for
+func TestDigestMethods(t *testing.T) {
 	stdoutstart()
 	expected := ""
-	entitymd, _ := internal.MDQ("https://wayfsp2.wayf.dk")
-	//entitymd, _ := internal.MDQ("https://ucsyd.papirfly.com/AuthServices")
-
-	tp := browse(nil, &overwrites{"Spmd": entitymd})
+	m := modsset{"cookiemods": mods{mod{"debug", "spSigAlg=sha256", nil}}}
+	tp := browse(m, &overwrites{"Hashalgorithm": "sha256"})
 	if tp != nil {
-		samlresponse, _ := gosaml.HTML2SAMLResponse(tp.Responsebody)
-		signatureMethod := samlresponse.Query1(nil, "//ds:SignatureMethod/@Algorithm")
-		digestMethod := samlresponse.Query1(nil, "//ds:DigestMethod/@Algorithm")
+		signatureMethod := tp.Newresponse.Query1(nil, "//ds:SignatureMethod/@Algorithm")
+		digestMethod := tp.Newresponse.Query1(nil, "//ds:DigestMethod/@Algorithm")
 		fmt.Printf("%s\n%s\n", signatureMethod, digestMethod)
 		expected += `http://www.w3.org/2001/04/xmldsig-more#rsa-sha256
 http://www.w3.org/2001/04/xmlenc#sha256
 `
 	}
-	stdoutend(t, expected)
-}
-
-// TestDigestMethodSha1 tests that the Signature|DigestMethod is what the sp asks for
-func xTestDigestMethodReceivingSha1(t *testing.T) {
-	stdoutstart()
-	expected := ""
-	entitymd, _ := internal.MDQ("https://metadata.wayf.dk/PHPh")
-
-	tp := browse(nil, &overwrites{"Spmd": entitymd})
+	m = modsset{"cookiemods": mods{mod{"debug", "spSigAlg=sha512", nil}}}
+	tp = browse(m, &overwrites{"Hashalgorithm": "sha512"})
 	if tp != nil {
-		samlresponse, _ := gosaml.HTML2SAMLResponse(tp.Responsebody)
-		signatureMethod := samlresponse.Query1(nil, "//ds:SignatureMethod/@Algorithm")
-		digestMethod := samlresponse.Query1(nil, "//ds:DigestMethod/@Algorithm")
+		signatureMethod := tp.Newresponse.Query1(nil, "//ds:SignatureMethod/@Algorithm")
+		digestMethod := tp.Newresponse.Query1(nil, "//ds:DigestMethod/@Algorithm")
 		fmt.Printf("%s\n%s\n", signatureMethod, digestMethod)
-		expected += `http://www.w3.org/2000/09/xmldsig#rsa-sha1
-http://www.w3.org/2000/09/xmldsig#sha1
-`
-	}
-	stdoutend(t, expected)
-}
-
-// TestDigestMethodSha256_1 tests that the Signature|DigestMethod is what the sp asks for
-func TestDigestMethodReceivingSha256(t *testing.T) {
-	stdoutstart()
-	expected := ""
-	entitymd, _ := internal.MDQ("https://wayfsp2.wayf.dk")
-	//entitymd, _ := internal.MDQ("https://ucsyd.papirfly.com/AuthServices")
-
-	tp := browse(nil, &overwrites{"Spmd": entitymd, "Hashalgorithm": "sha256"})
-	if tp != nil {
-		samlresponse, _ := gosaml.HTML2SAMLResponse(tp.Responsebody)
-		signatureMethod := samlresponse.Query1(nil, "//ds:SignatureMethod/@Algorithm")
-		digestMethod := samlresponse.Query1(nil, "//ds:DigestMethod/@Algorithm")
-		fmt.Printf("%s\n%s\n", signatureMethod, digestMethod)
-		expected += `http://www.w3.org/2001/04/xmldsig-more#rsa-sha256
-http://www.w3.org/2001/04/xmlenc#sha256
+		expected += `https://www.w3.org/2001/04/xmldsig-more#rsa-sha512
+https://www.w3.org/2001/04/xmlenc#sha512
 `
 	}
 	stdoutend(t, expected)
@@ -906,16 +966,14 @@ http://www.w3.org/2001/04/xmlenc#sha256
 func TestSigningResponse(t *testing.T) {
 	stdoutstart()
 	expected := ""
-	// find an entity with consent disabled, but no a birk entity as we know that using ssp does not understand the wayf namespace yet ...
 	entityID := testSPs.Query1(nil, "/*/*/*/wayf:wayf[wayf:saml20.sign.response='1']/../../md:SPSSODescriptor/../@entityID")
 	if entityID != "" {
-		entitymd, _ := internal.MDQ(entityID)
+		entitymd, _ := internalMd.MDQ(entityID)
 
 		tp := browse(nil, &overwrites{"Spmd": entitymd})
 		if tp != nil {
-			samlresponse, _ := gosaml.HTML2SAMLResponse(tp.Responsebody)
-			responseSignatures := len(samlresponse.QueryMulti(nil, "/samlp:Response/ds:Signature"))
-			assertionSignatures := len(samlresponse.QueryMulti(nil, "/samlp:Response/saml:Assertion/ds:Signature"))
+			responseSignatures := len(tp.Newresponse.QueryMulti(nil, "/samlp:Response/ds:Signature"))
+			assertionSignatures := len(tp.Newresponse.QueryMulti(nil, "/samlp:Response/saml:Assertion/ds:Signature"))
 			fmt.Printf("Response signature = %d Assertion signatures = %d\n", responseSignatures, assertionSignatures)
 			expected = `Response signature = 1 Assertion signatures = 0
 `
@@ -931,9 +989,9 @@ func TestConsentDisabled(t *testing.T) {
 	stdoutstart()
 	expected := ""
 	// find an entity with consent disabled, but no a birk entity as we know that using ssp does not understand the wayf namespace yet ...
-	entityID := testSPs.Query1(nil, "/*/*/*/wayf:wayf[wayf:consent.disable='1']/../../md:SPSSODescriptor/../@entityID")
+	entityID := testSPs.Query1(nil, "/*/*/*/wayf:wayf[wayf:consent.disable='1' or wayf:consent.disable='true']/../../md:SPSSODescriptor/../@entityID")
 	if entityID != "" {
-		entitymd, _ := internal.MDQ(entityID)
+		entitymd, _ := internalMd.MDQ(entityID)
 
 		tp := browse(nil, &overwrites{"Spmd": entitymd})
 		if tp != nil {
@@ -952,9 +1010,9 @@ func TestConsentGiven(t *testing.T) {
 	stdoutstart()
 	expected := ""
 	// find an entity with consent disabled, but no a birk entity as we know that using ssp does not understand the wayf namespace yet ...
-	entityID := testSPs.Query1(nil, "/*/*/*/wayf:wayf[not(wayf:consent.disable='1')]/../../md:SPSSODescriptor/../@entityID")
+	entityID := testSPs.Query1(nil, "/*/*/*/wayf:wayf[not(wayf:consent.disable='true' or wayf:consent.disable='1')]/../../md:SPSSODescriptor/../@entityID")
 	if entityID != "" {
-		entitymd, _ := internal.MDQ(entityID)
+		entitymd, _ := internalMd.MDQ(entityID)
 
 		tp := browse(nil, &overwrites{"Spmd": entitymd})
 		if tp != nil {
@@ -969,13 +1027,11 @@ func TestConsentGiven(t *testing.T) {
 }
 
 // TestPersistentNameID tests that the persistent nameID (and eptid) is the same from both the hub and BIRK
-func xTestPersistentNameID(t *testing.T) {
+func TestPersistentNameID(t *testing.T) {
 	expected := ""
 	stdoutstart()
-	defer stdoutend(t, expected)
 	entityID := testSPs.Query1(nil, "/*/*/md:SPSSODescriptor/md:NameIDFormat[.='urn:oasis:names:tc:SAML:2.0:nameid-format:persistent']/../md:AttributeConsumingService/md:RequestedAttribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10' or @Name='eduPersonTargetedID']/../../../@entityID")
-	log.Println("ent", entityID)
-	entitymd, _ := internal.MDQ(entityID)
+	entitymd, _ := internalMd.MDQ(entityID)
 	if entitymd == nil {
 		return
 		//log.Fatalln("no SP found for testing TestPersistentNameID")
@@ -983,16 +1039,16 @@ func xTestPersistentNameID(t *testing.T) {
 
 	tp := browse(nil, &overwrites{"Spmd": entitymd})
 	if tp != nil {
-		samlresponse, _ := gosaml.HTML2SAMLResponse(tp.Responsebody)
 		entityID := entitymd.Query1(nil, "@entityID")
-		nameidformat := samlresponse.Query1(nil, "//saml:NameID/@Format")
-		nameid := samlresponse.Query1(nil, "//saml:NameID")
-		audience := samlresponse.Query1(nil, "//saml:Audience")
-		spnamequalifier := samlresponse.Query1(nil, "//saml:NameID/@SPNameQualifier")
-		eptid := samlresponse.Query1(nil, "//saml:Attribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10' or @Name='eduPersonTargetedID']/saml:AttributeValue")
-		fmt.Printf("%s %s %s %s %s\n", nameidformat, nameid, eptid, audience, spnamequalifier)
-		expected += `urn:oasis:names:tc:SAML:2.0:nameid-format:persistent {{.pnameid}} {{.eptid}} ` + entityID + ` ` + entityID + "\n"
+		nameidformat := tp.Newresponse.Query1(nil, "//saml:NameID/@Format")
+		//nameid := tp.Newresponse.Query1(nil, "//saml:NameID")
+		audience := tp.Newresponse.Query1(nil, "//saml:Audience")
+		spnamequalifier := tp.Newresponse.Query1(nil, "//saml:NameID/@SPNameQualifier")
+		//eptid := tp.Newresponse.Query1(nil, "//saml:Attribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10' or @Name='eduPersonTargetedID']/saml:AttributeValue")
+		fmt.Printf("%s %s %s\n", nameidformat, audience, spnamequalifier)
+		expected += `urn:oasis:names:tc:SAML:2.0:nameid-format:persistent ` + entityID + ` ` + entityID + "\n"
 	}
+	stdoutend(t, expected)
 }
 
 // TestTransientNameID tests that the transient nameID (and eptid) is the same from both the hub and BIRK
@@ -1000,19 +1056,18 @@ func TestTransientNameID(t *testing.T) {
 	stdoutstart()
 	var expected string
 	eID := testSPs.Query1(nil, "/*/*/*/wayf:wayf/wayf:feds[.='WAYF']/../../../md:SPSSODescriptor/md:NameIDFormat[.='urn:oasis:names:tc:SAML:2.0:nameid-format:transient']/../../@entityID")
-	entitymd, _ := internal.MDQ(eID)
+	entitymd, _ := internalMd.MDQ(eID)
 	var tp *Testparams
 	entityID := ""
-	//	m := modsset{"responsemods": mods{mod{"./saml:Assertion/saml:Issuer", "+ 1234", nil}}}
-	//	m := modsset{"responsemods": mods{mod{"./saml:Assertion/ds:Signature/ds:SignatureValue", "+ 1234", nil}}}
+	//  m := modsset{"responsemods": mods{mod{"./saml:Assertion/saml:Issuer", "+ 1234", nil}}}
+	//  m := modsset{"responsemods": mods{mod{"./saml:Assertion/ds:Signature/ds:SignatureValue", "+ 1234", nil}}}
 	tp = browse(nil, &overwrites{"Spmd": entitymd})
 	if tp != nil {
-		samlresponse, _ := gosaml.HTML2SAMLResponse(tp.Responsebody)
 		entityID = entitymd.Query1(nil, "@entityID")
-		nameid := samlresponse.Query1(nil, "//saml:NameID")
-		nameidformat := samlresponse.Query1(nil, "//saml:NameID/@Format")
-		audience := samlresponse.Query1(nil, "//saml:Audience")
-		spnamequalifier := samlresponse.Query1(nil, "//saml:NameID/@SPNameQualifier")
+		nameid := tp.Newresponse.Query1(nil, "//saml:NameID")
+		nameidformat := tp.Newresponse.Query1(nil, "//saml:NameID/@Format")
+		audience := tp.Newresponse.Query1(nil, "//saml:Audience")
+		spnamequalifier := tp.Newresponse.Query1(nil, "//saml:NameID/@SPNameQualifier")
 		fmt.Printf("%s %t %s %s\n", nameidformat, nameid != "", audience, spnamequalifier)
 		expected = `urn:oasis:names:tc:SAML:2.0:nameid-format:transient true ` + entityID + ` ` + entityID + "\n"
 	}
@@ -1022,26 +1077,25 @@ func TestTransientNameID(t *testing.T) {
 /*
 // TestUnspecifiedNameID tests that the
 func TestUnspecifiedNameID(t *testing.T) {
-	stdoutstart()
-	m := modsset{"requestmods": mods{mod{"/samlp:NameIDPolicy[1]/@Format", "urn:oasis:names:tc:SAML:2.0:nameid-format:unspecified"}}}
-	// BIRK always sends NameIDPolicy/@Format=transient - but respects what the hub sends back - thus we need to fix the request BIRK sends to the hub (WAYFMMISC-940)
-	// n := modsset{"birkrequestmods": m["requestmods"]}
-	hub := DoRunTestHub(m)
-	birk := DoRunTestBirk(m)
-	expected := ""
-	for _, tp := range []*Testparams{hub, birk} {
-		if tp == nil || tp.Resp.StatusCode != 200 {
-			continue
-		}
-		samlresponse := HTML2SAMLResponse(tp)
-		nameidformat := samlresponse.Query1(nil, "//saml:NameID/@Format")
-		nameid := samlresponse.Query1(nil, "//saml:NameID")
-		eptid := samlresponse.Query1(nil, "//saml:Attribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10']/saml:AttributeValue")
-		fmt.Printf("%s %t %s\n", nameidformat, nameid != "", eptid)
-		expected += `urn:oasis:names:tc:SAML:2.0:nameid-format:transient true {{.eptid}}
+    stdoutstart()
+    m := modsset{"requestmods": mods{mod{"/samlp:NameIDPolicy[1]/@Format", "urn:oasis:names:tc:SAML:2.0:nameid-format:unspecified"}}}
+    // BIRK always sends NameIDPolicy/@Format=transient - but respects what the hub sends back - thus we need to fix the request BIRK sends to the hub (WAYFMMISC-940)
+    // n := modsset{"birkrequestmods": m["requestmods"]}
+    hub := DoRunTestHub(m)
+    birk := DoRunTestBirk(m)
+    expected := ""
+    for _, tp := range []*Testparams{hub, birk} {
+        if tp == nil || tp.Resp.StatusCode != 200 {
+            continue
+        }
+        nameidformat := tp.Newresponse.Query1(nil, "//saml:NameID/@Format")
+        nameid := tp.Newresponse.Query1(nil, "//saml:NameID")
+        eptid := tp.Newresponse.Query1(nil, "//saml:Attribute[@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10']/saml:AttributeValue")
+        fmt.Printf("%s %t %s\n", nameidformat, nameid != "", eptid)
+        expected += `urn:oasis:names:tc:SAML:2.0:nameid-format:transient true {{.eptid}}
 `
-	}
-	stdoutend(t, expected)
+    }
+    stdoutend(t, expected)
 }
 */
 
@@ -1096,6 +1150,8 @@ eduPersonScopedAffiliation urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     student@this.is.not.a.valid.idp
 eduPersonTargetedID urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     {{.eptid}}
+entryUUID urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    entryUUID
 gn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     Anton Banton &lt;SamlRequest id=&#34;abc&#34;&gt;abc&lt;/SamlRequest&gt;
 mail urn:oasis:names:tc:SAML:2.0:attrname-format:basic
@@ -1130,11 +1186,176 @@ sn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
 	stdoutend(t, expected)
 }
 
+// TestFullAttributeset1 test that the full attributeset is delivered to the default test sp
+func TestFullAttributesetSAMLtojwt(t *testing.T) {
+	var expected string
+	stdoutstart()
+	// common res for hub and birk
+	expected += `{
+    "NameStandIn": [
+        "Cantonsen"
+    ],
+    "aud": "https://wayfsp.wayf.dk",
+    "cn": [
+        "Anton Banton Cantonsen"
+    ],
+    "eduPersonAffiliation": [
+        "alum",
+        "student",
+        "member"
+    ],
+    "eduPersonAssurance": [
+        "2"
+    ],
+    "eduPersonEntitlement": [
+        "https://example.com/course101"
+    ],
+    "eduPersonPrimaryAffiliation": [
+        "student"
+    ],
+    "eduPersonPrincipalName": [
+        "joe@this.is.not.a.valid.idp"
+    ],
+    "eduPersonScopedAffiliation": [
+        "student@this.is.not.a.valid.idp",
+        "member@this.is.not.a.valid.idp",
+        "alum@this.is.not.a.valid.idp"
+    ],
+    "eduPersonTargetedID": [
+        "WAYF-DK-c52a92a5467ae336a2be77cd06719c645e72dfd2"
+    ],
+    "entryUUID": [
+        "entryUUID"
+    ],
+    "exp": "1234",
+    "gn": [
+        "Anton Banton \u003cSamlRequest id=\"abc\"\u003eabc\u003c/SamlRequest\u003e"
+    ],
+    "iat": "1234",
+    "iss": "https://wayf.wayf.dk",
+    "mail": [
+        "joe@example.com"
+    ],
+    "nbf": "1234",
+    "norEduPersonLIN": [
+        "123456789"
+    ],
+    "organizationName": [
+        "Orphanage - home for the homeless"
+    ],
+    "preferredLanguage": [
+        "da"
+    ],
+    "saml:AuthenticatingAuthority": [
+        "https://this.is.not.a.valid.idp"
+    ],
+    "schacCountryOfCitizenship": [
+        "dk"
+    ],
+    "schacDateOfBirth": [
+        "18580824"
+    ],
+    "schacHomeOrganization": [
+        "this.is.not.a.valid.idp"
+    ],
+    "schacHomeOrganizationType": [
+        "urn:mace:terena.org:schac:homeOrganizationType:int:other"
+    ],
+    "schacPersonalUniqueID": [
+        "urn:mace:terena.org:schac:personalUniqueID:dk:CPR:2408586234"
+    ],
+    "schacYearOfBirth": [
+        "1858"
+    ],
+    "sn": [
+        "Cantonsen"
+    ]
+}
+`
+	browse(nil, &overwrites{"SAML2jwtDoRequest": true, "SAML2jwtDoResponse": true})
+	stdoutend(t, expected)
+}
+
+// TestFullAttributesetSP2 test that the full attributeset is delivered to the PHPH service
+func TestScopingElement(t *testing.T) {
+	if dobirk {
+		return
+	}
+	stdoutstart()
+	m := modsset{"requestmods": mods{mod{"./samlp:Scoping/samlp:IDPList/samlp:IDPEntry/@ProviderID", "https://this.is.not.a.valid.idp", nil}}}
+	res := browse(m, nil)
+	fmt.Printf("%t", res.PassedDisco)
+	expected := "false"
+	stdoutend(t, expected)
+}
+
+// TestFullAttributesetSP2 test that the full attributeset is delivered to the PHPH service
+func TestScopingElementByDomain(t *testing.T) {
+	if dobirk {
+		return
+	}
+	stdoutstart()
+	m := modsset{"requestmods": mods{mod{"./samlp:Scoping/samlp:IDPList/samlp:IDPEntry/@ProviderID", "not.really.a.valid.idp", nil}}}
+	res := browse(m, nil)
+	fmt.Printf("%t", res.PassedDisco)
+	expected := "false"
+	stdoutend(t, expected)
+}
+
+// TestFullAttributesetSP2 test that the full attributeset is delivered to the PHPH service
+func TestScopingParam(t *testing.T) {
+	if dobirk {
+		return
+	}
+	stdoutstart()
+	m := modsset{"querymods": mods{mod{"idpentityid", "https://this.is.not.a.valid.idp", nil}}}
+	res := browse(m, nil)
+	fmt.Printf("%t", res.PassedDisco)
+	expected := "false"
+	stdoutend(t, expected)
+}
+
+func TestScopingParamByDomain(t *testing.T) {
+	if dobirk {
+		return
+	}
+	stdoutstart()
+	m := modsset{"querymods": mods{mod{"idpentityid", "not.really.a.valid.idp", nil}}}
+	res := browse(m, nil)
+	fmt.Printf("%t", res.PassedDisco)
+	expected := "false"
+	stdoutend(t, expected)
+}
+
+func TestScopingVVPMSS(t *testing.T) {
+	if dobirk {
+		return
+	}
+	stdoutstart()
+	m := modsset{"cookiemods": mods{mod{"vvpmss", "https://this.is.not.a.valid.idp", nil}}}
+	res := browse(m, nil)
+	fmt.Printf("%t", res.PassedDisco)
+	expected := "false"
+	stdoutend(t, expected)
+}
+
+func TestScopingVVPMSSByDomain(t *testing.T) {
+	if dobirk {
+		return
+	}
+	stdoutstart()
+	m := modsset{"cookiemods": mods{mod{"vvpmss", "not.really.a.valid.idp", nil}}}
+	res := browse(m, nil)
+	fmt.Printf("%t", res.PassedDisco)
+	expected := "false"
+	stdoutend(t, expected)
+}
+
 // TestFullAttributesetSP2 test that the full attributeset is delivered to the PHPH service
 func TestFullAttributesetSP2(t *testing.T) {
 	var expected string
 	stdoutstart()
-	spmd, _ := internal.MDQ("https://metadata.wayf.dk/PHPh")
+	spmd, _ := internalMd.MDQ("https://metadata.wayf.dk/PHPh")
 	res := browse(nil, &overwrites{"Spmd": spmd})
 	if res != nil {
 		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
@@ -1152,7 +1373,7 @@ mail urn:oasis:names:tc:SAML:2.0:attrname-format:basic
 func TestFullEncryptedAttributeset1(t *testing.T) {
 	var expected string
 	stdoutstart()
-	spmd, _ := internal.MDQ("https://metadata.wayf.dk/PHPh")
+	spmd, _ := internalMd.MDQ("https://metadata.wayf.dk/PHPh")
 	overwrite := &overwrites{"Encryptresponse": true, "Spmd": spmd}
 	res := browse(nil, overwrite)
 	if res != nil {
@@ -1171,83 +1392,53 @@ mail urn:oasis:names:tc:SAML:2.0:attrname-format:basic
 func TestAccessForNonIntersectingAdHocFederations(t *testing.T) {
 	var expected string
 	stdoutstart()
-	spmd, _ := internal.MDQ("https://this.is.not.a.valid.sp")
+	spmd, _ := internalMd.MDQ("https://this.is.not.a.valid.sp")
 	overwrite := &overwrites{"Spmd": spmd}
-	res := browse(nil, overwrite)
-	if res != nil {
-		switch *do {
-		case "hub", "birk":
-			expected = `no common federations
+	browse(nil, overwrite)
+	expected = `no common federations
 `
-		}
-	}
 	stdoutend(t, expected)
 }
 
 func TestSignErrorModifiedContent(t *testing.T) {
-	var expected string
 	stdoutstart()
 	m := modsset{"responsemods": mods{mod{"./saml:Assertion/saml:Issuer", "+ 1234", nil}}}
-	res := browse(m, nil)
-	if res != nil {
-		switch *do {
-		case "hub", "birk":
-			expected = `["cause:digest mismatch","err:unable to validate signature"]
+	browse(m, nil)
+	expected := `["cause:digest mismatch","err:unable to validate signature"]
 `
-		}
-	}
 	stdoutend(t, expected)
 }
 
 func TestSamlVulnerability(t *testing.T) {
-	var expected string
 	stdoutstart()
 	m := modsset{"responsemods": mods{mod{"./saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name=\"eduPersonPrincipalName\"]/saml:AttributeValue", "- <!--and.a.fake.domain--->", nil}}}
-	res := browse(m, nil)
-	if res != nil {
-		switch *do {
-		case "hub", "birk":
-			expected = `["cause:digest mismatch","err:unable to validate signature"]
+	browse(m, nil)
+	expected := `["cause:digest mismatch","err:unable to validate signature"]
 `
-		}
-	}
 	stdoutend(t, expected)
 }
 
 func TestSignErrorModifiedSignature(t *testing.T) {
-	var expected string
 	stdoutstart()
 	m := modsset{"responsemods": mods{mod{"./saml:Assertion/ds:Signature/ds:SignatureValue", "+ 1234", nil}}}
-	res := browse(m, nil)
-	if res != nil {
-		switch *do {
-		case "hub", "birk":
-			expected = `["cause:crypto/rsa: verification error","err:unable to validate signature"]
+	browse(m, nil)
+	expected := `["cause:crypto/rsa: verification error","err:unable to validate signature"]
 `
-		}
-	}
 	stdoutend(t, expected)
 }
 
 // TestNoSignatureError tests if the hub and BIRK reacts assertions that are not signed
 func TestNoSignatureError(t *testing.T) {
-	var expected string
 	stdoutstart()
 	m := modsset{"responsemods": mods{mod{"//ds:Signature", "", nil}}}
-	res := browse(m, nil)
-	if res != nil {
-		switch *do {
-		case "hub", "birk":
-			expected = `["cause:encryption error"]
+	browse(m, nil)
+	expected := `["cause:encryption error"]
 `
-		}
-	}
 	stdoutend(t, expected)
 }
 
 // TestUnknownKeySignatureError tests if the hub and BIRK reacts on signing with an unknown key
 func TestUnknownKeySignatureError(t *testing.T) {
-	var expected string
 	stdoutstart()
 	// Just a random private key - not used for anything else
 	pk := `-----BEGIN RSA PRIVATE KEY-----
@@ -1280,125 +1471,83 @@ mYqIGJZzLM/wk1u/CG52i+zDOiYbeiYNZc7qhIFU9ueinr88YZo=
 `
 
 	// need to do resign before sending to birk - not able to do that pt
-	//	_ = DoRunTestBirk(nil)
-	if browse(nil, &overwrites{"Privatekey": pk, "Privatekeypw": "-"}) != nil {
-		switch *do {
-		case "hub", "birk":
-			expected = `["cause:crypto/rsa: verification error","err:unable to validate signature"]
+	//  _ = DoRunTestBirk(nil)
+	browse(nil, &overwrites{"Privatekey": pk, "Privatekeypw": "-"})
+	expected := `["cause:crypto/rsa: verification error","err:unable to validate signature"]
 `
-		}
-	}
 	stdoutend(t, expected)
 }
 
 // TestRequestSchemaError tests that the HUB and BIRK reacts on schema errors in requests
 func TestRequestSchemaError(t *testing.T) {
-	var expected string
 	stdoutstart()
 	m := modsset{"requestmods": mods{mod{"./@IsPassive", "isfalse", nil}}}
-	if browse(m, nil) != nil {
-		switch *do {
-		case "hub", "birk":
-			expected = `["cause:schema validation failed"]
+	browse(m, nil)
+	expected := `["cause:schema validation failed"]
 `
-		}
-	}
 	stdoutend(t, expected)
 }
 
 // TestResponseSchemaError tests that the HUB and BIRK reacts on schema errors in responses
 func TestResponseSchemaError(t *testing.T) {
-	var expected string
 	stdoutstart()
 	m := modsset{"responsemods": mods{mod{"./@IssueInstant", "isfalse", nil}}}
-	if browse(m, nil) != nil {
-		switch *do {
-		case "hub", "birk":
-			expected = `["cause:schema validation failed"]
+	browse(m, nil)
+	expected := `["cause:schema validation failed"]
 `
-		}
-	}
 	stdoutend(t, expected)
 }
 
 // TestNoEPPNError tests that the hub does not accept assertions with no eppn
 func TestNoEPPNError(t *testing.T) {
-	var expected string
 	stdoutstart()
 	m := modsset{"attributemods": mods{mod{`//saml:Attribute[@Name="eduPersonPrincipalName"]`, "", nil}}}
-	if browse(m, nil) != nil {
-		switch *do {
-		case "hub", "birk":
-			expected = `["cause:isRequired: eduPersonPrincipalName"]
+	browse(m, nil)
+	expected := `["cause:isRequired: eduPersonPrincipalName"]
 `
-		}
-	}
 	stdoutend(t, expected)
 }
 
 // TestEPPNScopingError tests that the hub does not accept scoping errors in eppn - currently it does
-func TestEPPNScopingError(t *testing.T) {
-	var expected string
+func TestEPPNDomainError(t *testing.T) {
 	stdoutstart()
 	m := modsset{"attributemods": mods{
-		mod{`//saml:Attribute[@Name="eduPersonPrincipalName"]`, "", nil},
-		mod{`/saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue[1]`, "joe@example.com", nil}}}
-	if browse(m, nil) != nil {
-		switch *do {
-		case "hub", "birk":
-			expected = `["cause:security domain 'example.com' does not match any scopes"]
+		mod{`/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue`, "joe@example.com", nil}}}
+	browse(m, nil)
+	expected := `["cause:security domain 'example.com' does not match any scopes"]
 `
-		}
-	}
 	stdoutend(t, expected)
 }
 
 // TestNoLocalpartInEPPNError tests that the hub does not accept eppn with no localpart - currently it does
 func TestNoLocalpartInEPPNError(t *testing.T) {
-	var expected string
 	stdoutstart()
 	m := modsset{"attributemods": mods{
-		mod{`//saml:Attribute[@Name="eduPersonPrincipalName"]`, "", nil},
-		mod{`/saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue[1]`, "@this.is.not.a.valid.idp", nil}}}
-	if browse(m, nil) != nil {
-		switch *do {
-		case "hub", "birk":
-			expected = `["cause:not a scoped value: @this.is.not.a.valid.idp"]
+		mod{`/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue[1]`, "@this.is.not.a.valid.idp", nil}}}
+	browse(m, nil)
+	expected := `["cause:not a scoped value: @this.is.not.a.valid.idp"]
 `
-		}
-	}
 	stdoutend(t, expected)
 }
 
 // TestNoLocalpartInEPPNError tests that the hub does not accept eppn with no domain - currently it does
 func TestNoDomainInEPPNError(t *testing.T) {
-	var expected string
 	stdoutstart()
 	m := modsset{"attributemods": mods{
-		mod{`//saml:Attribute[@Name="eduPersonPrincipalName"]`, "", nil},
-		mod{`/saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue[1]`, "joe", nil}}}
-	if browse(m, nil) != nil {
-		switch *do {
-		case "hub", "birk":
-			expected = `["cause:not a scoped value: joe"]
+		mod{`/saml:AttributeStatement/saml:Attribute[@Name="eduPersonPrincipalName"]/saml:AttributeValue[1]`, "joe", nil}}}
+	browse(m, nil)
+	expected := `["cause:not a scoped value: joe"]
 `
-		}
-	}
 	stdoutend(t, expected)
 }
 
 // TestUnknownSPError test how the birk and the hub reacts on requests from an unknown sP
 func TestUnknownSPError(t *testing.T) {
-	var expected string
 	stdoutstart()
 	m := modsset{"requestmods": mods{mod{"./saml:Issuer", "https://www.example.com/unknownentity", nil}}}
-	if browse(m, nil) != nil {
-		switch *do {
-		case "hub", "birk":
-			expected = `["cause:Metadata not found","err:Metadata not found","key:https://www.example.com/unknownentity","table:HYBRID_EXTERNAL_SP"]
+	browse(m, nil)
+	expected := `["cause:Metadata not found","err:Metadata not found","key:https://www.example.com/unknownentity","table:HYBRID_EXTERNAL_SP"]
 `
-		}
-	}
 	stdoutend(t, expected)
 }
 
@@ -1406,30 +1555,29 @@ func TestUnknownSPError(t *testing.T) {
 // Use the line below for new birkservers
 // Metadata for entity: https://birk.wayf.dk/birk.php/www.example.com/unknownentity not found
 func TestUnknownIDPError(t *testing.T) {
-	var expected string
 	stdoutstart()
+	var m modsset
+	var expected string
 	switch *do {
-	case "hub", "birk":
-		m := modsset{"requestmods": mods{mod{"./@Destination", "https://wayf.wayf.dk/unknownentity", nil}}}
-		if browse(m, nil) != nil {
-			expected = `unknown error
+	case "hub":
+		m = modsset{"requestmods": mods{mod{"./samlp:Scoping/samlp:IDPList/samlp:IDPEntry/@ProviderID", "https://wayf.wayf.dk/unknownentity", nil}}}
+		expected = `["cause:Metadata not found","err:Metadata not found","key:https://wayf.wayf.dk/unknownentity","table:HYBRID_EXTERNAL_IDP"]
 `
-		}
+	case "birk":
+		m = modsset{"requestmods": mods{mod{"./@Destination", "https://birk.wayf.dk/birk.php/wayf.wayf.dk/unknownentity", nil}}}
+		expected = `["cause:Metadata not found","err:Metadata not found","key:https://birk.wayf.dk/birk.php/wayf.wayf.dk/unknownentity","table:HYBRID_EXTERNAL_IDP"]
+`
 	}
+	browse(m, nil)
 	stdoutend(t, expected)
 }
 
 func xTestXSW1(t *testing.T) {
-	var expected string
 	stdoutstart()
-	m := modsset{"responsemods": mods{mod{"", "", ApplyXSW1}}}
-	if browse(m, nil) != nil {
-		switch *do {
-		case "hub", "birk":
-			expected += `["cause:sql: no rows in result set","err:Metadata not found","key:https://birk.wayf.dk/birk.php/www.example.com/unknownentity","table:HYBRID_EXTERNAL_IDP"]
+	m := modsset{"responsemods": mods{mod{"", "", nil}}} //ApplyXSW1}}}
+	browse(m, nil)
+	expected := `["cause:sql: no rows in result set","err:Metadata not found","key:https://birk.wayf.dk/birk.php/www.example.com/unknownentity","table:HYBRID_EXTERNAL_IDP"]
 `
-		}
-	}
 	stdoutend(t, expected)
 }
 
@@ -1458,7 +1606,7 @@ func xTestSpeed(t *testing.T) {
 		go func(i int) {
 			for j := 0; j < iterations; j++ {
 				starttime := time.Now()
-				spmd, _ := internal.MDQ("https://metadata.wayf.dk/PHPh")
+				spmd, _ := internalMd.MDQ("https://metadata.wayf.dk/PHPh")
 				browse(nil, &overwrites{"Spmd": spmd})
 				log.Println(i, j, time.Since(starttime).Seconds())
 				//runtime.GC()
@@ -1473,7 +1621,7 @@ func xTestSpeed(t *testing.T) {
 // PP - super simple Pretty Print - using JSON
 func PP(i ...interface{}) {
 	for _, e := range i {
-		s, _ := json.MarshalIndent(e, "", "\t")
+		s, _ := json.MarshalIndent(e, "", "    ")
 		fmt.Println(string(s))
 	}
 	return
