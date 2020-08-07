@@ -156,7 +156,7 @@ func TestMain(m *testing.M) {
 		*hub = "wayf.wayf.dk"
 	}
 
-	log.Printf("hub: %q backend: %q\n", *hub, *hubbe)
+	log.Printf("hub: %q backend: %q %s\n", *hub, *hubbe, *env)
 
 	gosaml.AuthnRequestCookie = &gosaml.Hm{180, sha256.New, []byte("abcd")}
 
@@ -201,6 +201,7 @@ func TestMain(m *testing.M) {
 	*do = "hub"
 	dohub = true
 	r := m.Run()
+	os.Exit(r)
 
 	*do = "birk"
 	dohub = false
@@ -280,6 +281,7 @@ func Newtp(overwrite *overwrites) (tp *Testparams) {
 	tp.Cookiejar = make(map[string]map[string]*http.Cookie)
 	tp.Cookiejar["wayf.dk"] = make(map[string]*http.Cookie)
 	tp.Cookiejar["wayf.dk"]["wayfid"] = &http.Cookie{Name: "wayfid", Value: *hubbe}
+	tp.Cookiejar["wayf.dk"]["debug"] = &http.Cookie{Name: "debug", Value: "trace=1"}
 
 	if overwrite != nil { // overwrite default values with test specific values while it still matters
 		for k, v := range *overwrite {
@@ -434,7 +436,7 @@ func sp(m modsset, overwrite interface{}) (tp *Testparams, u *url.URL) {
 	case nil:
 		tp = Newtp(nil)
 	}
-	tp.Initialrequest, _ = gosaml.NewAuthnRequest(nil, tp.Spmd, tp.Firstidpmd, "", []string{}, "", false, 0, 0)
+	tp.Initialrequest, _, _ = gosaml.NewAuthnRequest(nil, tp.Spmd, tp.Firstidpmd, "", []string{}, "", false, 0, 0)
 	if tp.SAML2jwtDoRequest {
 		u = tp.SAML2jwtRequest()
 	} else {
@@ -483,28 +485,27 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 				u.RawQuery = ""
 			}
 		}
-		tp.Resp, tp.Responsebody, tp.Err = tp.sendRequest(u, tp.Method, body)
+		var samlresponse *goxml.Xp
+		tp.Resp, tp.Responsebody, samlresponse, tp.Err = tp.sendRequest(u, tp.Method, body)
 		if tp.Err != nil {
-			fmt.Println(u.Host, u.Path)
+			fmt.Println(tp.Err)
 			return nil
 			//log.Panic(tp.Err)
 		}
 		if u, _ = tp.Resp.Location(); u != nil { // Redirecting - we don't care about the StatusCode - Location means redirect
-			if tp.Err == nil {
-				query := u.Query()
-				// we got to a discoveryservice - choose our testidp
-				if len(query["return"]) > 0 && len(query["returnIDParam"]) > 0 {
-					u, _ = url.Parse(query["return"][0])
-					q := u.Query()
-					q.Set(query["returnIDParam"][0], tp.Idp)
-					u.RawQuery = q.Encode()
-					tp.PassedDisco = true
-				}
+			query := u.Query()
+			// we got to a discoveryservice - choose our testidp
+			if len(query["return"]) > 0 && len(query["returnIDParam"]) > 0 {
+				u, _ = url.Parse(query["return"][0])
+				q := u.Query()
+				q.Set(query["returnIDParam"][0], tp.Idp)
+				u.RawQuery = q.Encode()
+				tp.PassedDisco = true
 			}
 			if u.Host == finalIdp.Host {
 				err := tp.newresponse(u)
 				if err != nil {
-				    return nil
+					return nil
 				}
 				tp.Method = "POST"
 				phase = responding
@@ -514,7 +515,7 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 		if tp.Resp.StatusCode == 500 {
 			break
 		} else {
-			tp.Newresponse, _ = gosaml.HTML2SAMLResponse(tp.Responsebody)
+			tp.Newresponse = samlresponse
 		}
 		redirects--
 		if redirects == 0 { // if we go wild ...
@@ -548,6 +549,51 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 	return
 }
 
+func browseSLO(tp *Testparams) {
+	type sloRec struct {
+		entityid string
+		role     uint8
+	}
+
+	sloRecs := map[string]sloRec{
+		"https://this.is.not.a.valid.external.idp/SLO":                              {"https://this.is.not.a.valid.external.idp", gosaml.SPRole},
+		"https://this.is.not.a.valid.idp/SLO":                                       {"https://this.is.not.a.valid.idp", gosaml.SPRole},
+		"https://wayfsp.wayf.dk/ss/module.php/saml/sp/saml2-logout.php/default-sp":  {"https://wayfsp.wayf.dk", gosaml.IDPRole},
+		"https://wayfsp2.wayf.dk/ss/module.php/saml/sp/saml2-logout.php/default-sp": {"https://wayfsp2.wayf.dk", gosaml.IDPRole},
+	}
+
+	context := tp.Newresponse.Query(nil, "/samlp:Response/saml:Assertion")[0]
+	sloinfo := gosaml.NewSLOInfo(tp.Newresponse, context, tp.Spmd.Query1(nil, "@entityID"), false, gosaml.SPRole)
+	request, _, _ := gosaml.NewLogoutRequest(tp.Hubidpmd, sloinfo, tp.Spmd.Query1(nil, "@entityID"), false)
+	request.QueryDashP(nil, "@ID", gosaml.ID(), nil)
+	finalIssuer, _ := url.Parse(request.Query1(nil, "./saml:Issuer"))
+	tp.logxml(request)
+
+	dest := request.Query1(nil, "@Destination")
+	u, _ := url.Parse(dest)
+	req := base64.StdEncoding.EncodeToString(gosaml.Deflate(request.Dump()))
+	u.RawQuery = "SAMLRequest=" + url.QueryEscape(req)
+
+	for {
+	    _, _, saml, _ := tp.sendRequest(u, "GET", "")
+		tp.logxml(saml)
+	    dest = saml.Query1(nil, "@Destination")
+	    u, _ = url.Parse(dest)
+		fmt.Println("logout", u.Host)
+        if u.Host == finalIssuer.Host {
+            return
+        } else {
+			spMd := tp.Hubspmd
+			if u.Host == "this.is.not.a.valid.external.idp" {
+				spMd, _ = externalSPMd.MDQ(tp.SP)
+			}
+			slo, _, _ := gosaml.NewLogoutResponse(sloRecs[dest].entityid, spMd, saml.Query1(nil, "@ID"), sloRecs[dest].role)
+			u, _ = gosaml.SAMLRequest2URL(slo, "", "", "-", "")
+			tp.logxml(slo)
+		}
+	}
+}
+
 func (tp *Testparams) newresponse(u *url.URL) (err error) {
 	// get the SAMLRequest
 	query := u.Query()
@@ -571,7 +617,7 @@ func (tp *Testparams) newresponse(u *url.URL) (err error) {
 
 			err = tp.Jwt2SAMLDo(query)
 			if err != nil {
-			    return
+				return
 			}
 
 			attrs := map[string]interface{}{}
@@ -591,7 +637,7 @@ func (tp *Testparams) newresponse(u *url.URL) (err error) {
 			query.Add("jwt", header+payload+"."+base64.RawURLEncoding.EncodeToString(signature))
 			err = tp.Jwt2SAMLDo(query)
 			if err != nil {
-			    return err
+				return err
 			}
 
 		} else {
@@ -638,7 +684,7 @@ func (tp *Testparams) newresponse(u *url.URL) (err error) {
 // SendRequest sends a http request - GET or POST using the supplied url, server, method and cookies
 // It updates the cookies and returns a http.Response and a posssible response body and error
 // The server parameter contains the dns name of the actual server, which should respond to the host part of the url
-func (tp *Testparams) sendRequest(url *url.URL, method, body string) (resp *http.Response, responsebody []byte, err error) {
+func (tp *Testparams) sendRequest(url *url.URL, method, body string) (resp *http.Response, responsebody []byte, samlresponse *goxml.Xp, err error) {
 	var payload io.Reader
 	if method == "POST" {
 		payload = strings.NewReader(body)
@@ -662,29 +708,37 @@ func (tp *Testparams) sendRequest(url *url.URL, method, body string) (resp *http
 	if err != nil && !strings.HasSuffix(err.Error(), "redirect-not-allowed") {
 		// we need to do the redirect ourselves so a self inflicted redirect "error" is not an error
 		// debug.PrintStack()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
+
 	for _, cookie := range resp.Cookies() {
-		tp.Cookiejar[cookiedomain][cookie.Name] = cookie
+		if cookie.Expires.Unix() == 0 {
+			delete(tp.Cookiejar[cookiedomain], cookie.Name)
+		} else {
+			tp.Cookiejar[cookiedomain][cookie.Name] = cookie
+		}
 	}
 
 	responsebody, err = ioutil.ReadAll(resp.Body)
 	defer resp.Body.Close()
 
+	if resp.StatusCode == 500 {
+		return nil, nil, nil, fmt.Errorf(strings.Trim(string(responsebody), " \n\t"))
+	}
+
 	// We didn't get a Location: header - we are POST'ing a SAMLResponse
 	var loc string
 	location, _ := resp.Location()
 	if location == nil {
-		response := goxml.NewHTMLXp(responsebody)
-		samlbase64 := response.Query1(nil, `//input[@name="SAMLResponse"]/@value`)
-		tp.RelayState = response.Query1(nil, `//input[@name="RelayState"]/@value`)
-		if samlbase64 != "" {
-			samlxml, _ := base64.StdEncoding.DecodeString(samlbase64)
-			samlresponse := goxml.NewXp(samlxml)
+		samlresponse, _ = gosaml.HTML2SAMLResponse(responsebody)
+		if samlresponse != nil {
 			u, _ := url.Parse(samlresponse.Query1(nil, "@Destination"))
 			loc = u.Host + u.Path
 		}
 	} else {
+		q := location.Query()
+		req, _ := base64.StdEncoding.DecodeString(q.Get("SAMLRequest") + q.Get("SAMLResponse")) // never both at the same time
+		samlresponse = goxml.NewXp(gosaml.Inflate(req))
 		loc = location.Host + location.Path
 	}
 
@@ -765,17 +819,22 @@ func ValidateSignature(md, xp *goxml.Xp) (err error) {
 	return
 }
 
-
 func TestSPSLO(t *testing.T) {
 	stdoutstart()
 	res := browse(nil, nil)
-	expected := `https://wayfsp.wayf.dk
+
+    spMd, _ := internalMd.MDQ("https://wayfsp2.wayf.dk")
+
+	res = browse(nil, &overwrites{"Spmd": spMd, "Idp": "https://this.is.not.a.valid.external.idp", "Cookiejar": res.Cookiejar})
+	browseSLO(res)
+//	PP(res.Cookiejar)
+	expected := `logout this.is.not.a.valid.external.idp
+logout this.is.not.a.valid.idp
+logout wayfsp.wayf.dk
+logout wayfsp2.wayf.dk
 `
-	fmt.Println(res.FinalRequest.Query1(nil, "samlp:Scoping/samlp:RequesterID"))
 	stdoutend(t, expected)
 }
-
-
 
 // TestAttributeNameFormat tests if the hub delivers the attributes in the correct format - only one (or none) is allowed
 // Currently if none is specified we deliver both but lie about the format so we say that it is basic even though it actually is uri
@@ -815,13 +874,15 @@ false true
 	stdoutend(t, expected)
 }
 
-func xTestPostingRequest(t *testing.T) {
+func TestPostingRequest(t *testing.T) {
 	stdoutstart()
 	m := modsset{"requestmods": mods{mod{"./samlp:Scoping/samlp:IDPList/samlp:IDPEntry/@ProviderID", "https://this.is.not.a.valid.idp", nil}}}
 	res := browse(m, &overwrites{"Method": "POST"})
 	expected := `https://wayfsp.wayf.dk
 `
-	fmt.Println(res.FinalRequest.Query1(nil, "samlp:Scoping/samlp:RequesterID"))
+	if res != nil {
+		fmt.Println(res.FinalRequest.Query1(nil, "samlp:Scoping/samlp:RequesterID"))
+	}
 	stdoutend(t, expected)
 }
 
@@ -830,7 +891,9 @@ func TestRequesterID(t *testing.T) {
 	res := browse(nil, nil)
 	expected := `https://wayfsp.wayf.dk
 `
-	fmt.Println(res.FinalRequest.Query1(nil, "samlp:Scoping/samlp:RequesterID"))
+	if res != nil {
+		fmt.Println(res.FinalRequest.Query1(nil, "samlp:Scoping/samlp:RequesterID"))
+	}
 	stdoutend(t, expected)
 }
 
@@ -863,8 +926,8 @@ func TestJwt2SAML(t *testing.T) {
   ]
 } https://wayfsp.wayf.dk
 `
-    if res != nil {
-        	fmt.Println(res.Jwt2SAMLResponse, res.FinalRequest.Query1(nil, "samlp:Scoping/samlp:RequesterID"))
+	if res != nil {
+		fmt.Println(res.Jwt2SAMLResponse, res.FinalRequest.Query1(nil, "samlp:Scoping/samlp:RequesterID"))
 	}
 	stdoutend(t, expected)
 }
@@ -876,7 +939,9 @@ func TestKrib(t *testing.T) {
 	stdoutstart()
 	m := modsset{"requestmods": mods{mod{"./samlp:Scoping/samlp:IDPList/samlp:IDPEntry/@ProviderID", "https://this.is.not.a.valid.external.idp", nil}}}
 	res := browse(m, &overwrites{"Idp": "https://this.is.not.a.valid.external.idp"})
-	fmt.Printf("%t", res.PassedDisco)
+	if res != nil {
+		fmt.Printf("%t", res.PassedDisco)
+	}
 	expected := "false"
 	stdoutend(t, expected)
 }
@@ -1284,7 +1349,9 @@ func TestScopingElement(t *testing.T) {
 	stdoutstart()
 	m := modsset{"requestmods": mods{mod{"./samlp:Scoping/samlp:IDPList/samlp:IDPEntry/@ProviderID", "https://this.is.not.a.valid.idp", nil}}}
 	res := browse(m, nil)
-	fmt.Printf("%t", res.PassedDisco)
+	if res != nil {
+		fmt.Printf("%t", res.PassedDisco)
+	}
 	expected := "false"
 	stdoutend(t, expected)
 }
@@ -1297,7 +1364,9 @@ func TestScopingElementByDomain(t *testing.T) {
 	stdoutstart()
 	m := modsset{"requestmods": mods{mod{"./samlp:Scoping/samlp:IDPList/samlp:IDPEntry/@ProviderID", "not.really.a.valid.idp", nil}}}
 	res := browse(m, nil)
-	fmt.Printf("%t", res.PassedDisco)
+	if res != nil {
+		fmt.Printf("%t", res.PassedDisco)
+	}
 	expected := "false"
 	stdoutend(t, expected)
 }
@@ -1310,7 +1379,9 @@ func TestScopingParam(t *testing.T) {
 	stdoutstart()
 	m := modsset{"querymods": mods{mod{"idpentityid", "https://this.is.not.a.valid.idp", nil}}}
 	res := browse(m, nil)
-	fmt.Printf("%t", res.PassedDisco)
+	if res != nil {
+		fmt.Printf("%t", res.PassedDisco)
+	}
 	expected := "false"
 	stdoutend(t, expected)
 }
@@ -1322,7 +1393,9 @@ func TestScopingParamByDomain(t *testing.T) {
 	stdoutstart()
 	m := modsset{"querymods": mods{mod{"idpentityid", "not.really.a.valid.idp", nil}}}
 	res := browse(m, nil)
-	fmt.Printf("%t", res.PassedDisco)
+	if res != nil {
+		fmt.Printf("%t", res.PassedDisco)
+	}
 	expected := "false"
 	stdoutend(t, expected)
 }
@@ -1334,7 +1407,9 @@ func TestScopingVVPMSS(t *testing.T) {
 	stdoutstart()
 	m := modsset{"cookiemods": mods{mod{"vvpmss", "https://this.is.not.a.valid.idp", nil}}}
 	res := browse(m, nil)
-	fmt.Printf("%t", res.PassedDisco)
+	if res != nil {
+		fmt.Printf("%t", res.PassedDisco)
+	}
 	expected := "false"
 	stdoutend(t, expected)
 }
@@ -1346,7 +1421,9 @@ func TestScopingVVPMSSByDomain(t *testing.T) {
 	stdoutstart()
 	m := modsset{"cookiemods": mods{mod{"vvpmss", "not.really.a.valid.idp", nil}}}
 	res := browse(m, nil)
-	fmt.Printf("%t", res.PassedDisco)
+	if res != nil {
+		fmt.Printf("%t", res.PassedDisco)
+	}
 	expected := "false"
 	stdoutend(t, expected)
 }
