@@ -1795,7 +1795,7 @@ func TestUnknownSPError(t *testing.T) {
 	stdoutstart()
 	m := modsset{"requestmods": mods{mod{"./saml:Issuer", "https://www.example.com/unknownentity", nil}}}
 	browse(m, nil)
-	expected := `["cause:Metadata not found","err:Metadata not found","key:https://www.example.com/unknownentity","table:HYBRID_EXTERNAL_SP"]
+	expected := `["cause:Metadata not found","err:Metadata not found","key:https://www.example.com/unknownentity","table:sp"]
 `
 	stdoutend(t, expected)
 }
@@ -1810,11 +1810,11 @@ func TestUnknownIDPError(t *testing.T) {
 	switch *do {
 	case "hub":
 		m = modsset{"requestmods": mods{mod{"./samlp:Scoping/samlp:IDPList/samlp:IDPEntry/@ProviderID", "https://wayf.wayf.dk/unknownentity", nil}}}
-		expected = `["cause:Metadata not found","err:Metadata not found","key:https://wayf.wayf.dk/unknownentity","table:HYBRID_EXTERNAL_IDP"]
+		expected = `["cause:Metadata not found","err:Metadata not found","key:https://wayf.wayf.dk/unknownentity","table:idp"]
 `
 	case "birk":
 		m = modsset{"requestmods": mods{mod{"./@Destination", "https://birk.wayf.dk/birk.php/wayf.wayf.dk/unknownentity", nil}}}
-		expected = `["cause:Metadata not found","err:Metadata not found","key:https://birk.wayf.dk/birk.php/wayf.wayf.dk/unknownentity","table:HYBRID_EXTERNAL_IDP"]
+		expected = `["cause:Metadata not found","err:Metadata not found","key:https://birk.wayf.dk/birk.php/wayf.wayf.dk/unknownentity","table:idp"]
 `
 	}
 	browse(m, nil)
@@ -1825,7 +1825,7 @@ func xTestXSW1(t *testing.T) {
 	stdoutstart()
 	m := modsset{"responsemods": mods{mod{"", "", nil}}} //ApplyXSW1}}}
 	browse(m, nil)
-	expected := `["cause:sql: no rows in result set","err:Metadata not found","key:https://birk.wayf.dk/birk.php/www.example.com/unknownentity","table:HYBRID_EXTERNAL_IDP"]
+	expected := `["cause:sql: no rows in result set","err:Metadata not found","key:https://birk.wayf.dk/birk.php/www.example.com/unknownentity","table:idp"]
 `
 	stdoutend(t, expected)
 }
