@@ -42,6 +42,13 @@ var (
 )
 
 type (
+	appHandler func(http.ResponseWriter, *http.Request) error
+
+	// https://stackoverflow.com/questions/47475802/golang-301-moved-permanently-if-request-path-contains-additional-slash
+	slashFix struct {
+		mux http.Handler
+	}
+
 	Testparams struct {
 		Idp, SP, BirkIdp, FinalIdp, Hybrid, RelayState     string
 		Spmd, Idpmd, Hubidpmd, Hubspmd, Birkmd, Firstidpmd *goxml.Xp
@@ -94,6 +101,8 @@ var (
 	}
 
 	hubMd, internalMd, externalIdPMd, externalSPMd *lmdq.MDQ
+	mdMap                                          map[string]*lmdq.MDQ
+	mdqMap                                         = map[string]map[string]*goxml.Xp{"int": {}}
 
 	testAttributes = map[string][]string{
 		"cn":                          {"Anton Banton Cantonsen"},
@@ -171,6 +180,24 @@ func TestMain(m *testing.M) {
 		}
 	}
 
+	mdMap = map[string]*lmdq.MDQ{"hub": hubMd, "int": internalMd, "idp": externalIdPMd, "sp": externalSPMd}
+
+	/*
+	   Internal MDQ server for being able to modify md for the hub on the fly ...
+	*/
+
+	httpMux := http.NewServeMux()
+	httpMux.Handle("/MDQ/", appHandler(mdq))
+
+	go func() {
+		intf := "127.0.0.1:9999"
+		log.Println("listening on ", intf)
+		err := http.ListenAndServe(intf, &slashFix{httpMux})
+		if err != nil {
+			log.Printf("main(): %s\n", err)
+		}
+	}()
+
 	// need non-birk, non-request.validate and non-IDPList SPs for testing ....
 	var numberOfTestSPs int
 	testSPs, numberOfTestSPs, _ = internalMd.MDQFilter("/md:EntityDescriptor/md:Extensions/wayf:wayf[wayf:federation='WAYF' and not(wayf:IDPList)]/../../md:SPSSODescriptor/..")
@@ -201,13 +228,60 @@ func TestMain(m *testing.M) {
 	*do = "hub"
 	dohub = true
 	r := m.Run()
-	os.Exit(r)
+	//os.Exit(r)
 
 	*do = "birk"
 	dohub = false
 	dobirk = true
 	r += m.Run()
 	os.Exit(r)
+
+}
+
+func (h *slashFix) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	r.URL.Path = strings.Replace(r.URL.Path, "//", "/", -1)
+	h.mux.ServeHTTP(w, r)
+}
+
+func (fn appHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	//log.Printf("in: %s %s %s %+v", r.RemoteAddr, r.Method, r.Host, r.URL)
+	//starttime := time.Now()
+	err := fn(w, r)
+
+	status := 200
+	if err != nil {
+		status = 500
+		if err.Error() == "401" {
+			status = 401
+		}
+		http.Error(w, err.Error(), status)
+	} else {
+		err = fmt.Errorf("OK")
+	}
+
+	//log.Printf("%s %s %s %+v %1.3f %d %s", r.RemoteAddr, r.Method, r.Host, r.URL, time.Since(starttime).Seconds(), status, err)
+}
+
+// MDQWeb - thin MDQ web layer on top of lmdq
+func mdq(w http.ResponseWriter, r *http.Request) (err error) {
+	var rawPath string
+	if rawPath = r.URL.RawPath; rawPath == "" {
+		rawPath = r.URL.Path
+	}
+	path := strings.SplitN(rawPath, "/", 4)[2:]
+	ent, _ := url.PathUnescape(path[1])
+	xp, ok := mdqMap[path[0]][ent]
+	if !ok {
+		xp, err = mdMap[path[0]].MDQ(ent)
+		if err != nil {
+			return
+		}
+	}
+	xml := xp.Dump()
+	w.Header().Set("Content-Type", "application/samlmetadata+xml")
+	w.Header().Set("Content-Length", strconv.Itoa(len(xml)))
+	w.Write([]byte(xml))
+	return
 }
 
 func (tp *Testparams) logxml(x interface{}) {
