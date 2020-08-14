@@ -559,7 +559,7 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 				ApplyModsXp(tp.Newresponse, m["responsemods"])
 			}
 			data = url.Values{
-				"SAMLResponse": []string{base64.StdEncoding.EncodeToString([]byte(tp.Newresponse.Doc.Dump(false)))},
+				"SAMLResponse": []string{base64.StdEncoding.EncodeToString([]byte(tp.Newresponse.Dump()))},
 				"RelayState":   []string{tp.RelayState},
 			}
 			body = data.Encode()
