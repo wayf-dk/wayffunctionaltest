@@ -464,7 +464,11 @@ func (tp *Testparams) SAML2jwtRequest() (u *url.URL) {
 	return
 }
 
-func (tp *Testparams) SAML2jwtResponse(data url.Values) (attrs map[string]interface{}) {
+func (tp *Testparams) SAML2jwtResponse() (attrs map[string]interface{}) {
+	data := url.Values{
+		"SAMLResponse": []string{base64.StdEncoding.EncodeToString([]byte(tp.Newresponse.Dump()))},
+		"RelayState":   []string{tp.RelayState},
+	}
 	acs := tp.Initialrequest.Query1(nil, "./@AssertionConsumerServiceURL")
 	issuer := tp.Initialrequest.Query1(nil, "saml:Issuer")
 	data.Set("acs", acs)
