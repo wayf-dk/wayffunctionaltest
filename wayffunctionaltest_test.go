@@ -518,6 +518,8 @@ func sp(m modsset, overwrite interface{}) (tp *Testparams, u *url.URL) {
 	case nil:
 		tp = Newtp(nil)
 	}
+
+	mdqMap["int"] = map[string]*goxml.Xp{}
 	tp.Initialrequest, _, _ = gosaml.NewAuthnRequest(nil, tp.Spmd, tp.Firstidpmd, "", []string{}, "", false, 0, 0)
 	if tp.SAML2jwtDoRequest {
 		u = tp.SAML2jwtRequest()
@@ -527,7 +529,14 @@ func sp(m modsset, overwrite interface{}) (tp *Testparams, u *url.URL) {
 		u, _ = gosaml.SAMLRequest2URL(tp.Initialrequest, "", "", "", "")
 		applyModsQuery(u, m["querymods"])
 		applyModsCookie(tp, m["cookiemods"])
+		applyModsMd(tp, "sp", m["mdspmods"])
 	}
+    mdqMap["int"][tp.SP] = tp.Spmd
+	mdqMap["int"][gosaml.IDHash(tp.SP)] = tp.Spmd
+    mdqMap["int"][tp.Idp] = tp.Idpmd
+	mdqMap["int"][gosaml.IDHash(tp.Idp)] = tp.Idpmd
+
+
 	return
 }
 
