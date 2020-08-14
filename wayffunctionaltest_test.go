@@ -655,31 +655,32 @@ func browseSLO(tp *Testparams) {
 
 	context := tp.Newresponse.Query(nil, "/samlp:Response/saml:Assertion")[0]
 	sloinfo := gosaml.NewSLOInfo(tp.Newresponse, context, tp.Spmd.Query1(nil, "@entityID"), false, gosaml.SPRole)
-	request, _, _ := gosaml.NewLogoutRequest(tp.Hubidpmd, sloinfo, tp.Spmd.Query1(nil, "@entityID"), false)
-	request.QueryDashP(nil, "@ID", gosaml.ID(), nil)
-	finalIssuer, _ := url.Parse(request.Query1(nil, "./saml:Issuer"))
-	tp.logxml(request)
-
-	dest := request.Query1(nil, "@Destination")
-	u, _ := url.Parse(dest)
-	req := base64.StdEncoding.EncodeToString(gosaml.Deflate(request.Dump()))
-	u.RawQuery = "SAMLRequest=" + url.QueryEscape(req)
+	slo, _, _ := gosaml.NewLogoutRequest(tp.Hubidpmd, sloinfo, tp.Spmd.Query1(nil, "@entityID"), tp.AsyncSLO)
+	slo.QueryDashP(nil, "@ID", gosaml.ID(), nil)
+	finalIssuer, _ := url.Parse(slo.Query1(nil, "./saml:Issuer"))
+	tp.logxml(slo)
 
 	for {
-	    _, _, saml, _ := tp.sendRequest(u, "GET", "")
+		var saml *goxml.Xp
+		u, _ := gosaml.SAMLRequest2URL(slo, "", tp.Privatekey, tp.Privatekeypw, "")
+		tp.Resp, tp.Responsebody, saml, tp.Err = tp.sendRequest(u, "GET", "")
+		if tp.Err != nil {
+			fmt.Println(tp.Err)
+			return
+			//log.Panic(tp.Err)
+		}
 		tp.logxml(saml)
-	    dest = saml.Query1(nil, "@Destination")
+		dest := saml.Query1(nil, "@Destination")
 	    u, _ = url.Parse(dest)
 		fmt.Println("logout", u.Host)
         if u.Host == finalIssuer.Host {
             return
         } else {
 			spMd := tp.Hubspmd
-			if u.Host == "this.is.not.a.valid.external.idp" {
+			if u.Host == "this.is.not.a.valid.external.idp" { // must send response to krib location
 				spMd, _ = externalSPMd.MDQ(tp.SP)
 			}
-			slo, _, _ := gosaml.NewLogoutResponse(sloRecs[dest].entityid, spMd, saml.Query1(nil, "@ID"), sloRecs[dest].role)
-			u, _ = gosaml.SAMLRequest2URL(slo, "", "", "-", "")
+			slo, _, _ = gosaml.NewLogoutResponse(sloRecs[dest].entityid, spMd, saml.Query1(nil, "@ID"), sloRecs[dest].role)
 			tp.logxml(slo)
 		}
 	}
@@ -884,6 +885,14 @@ func applyModsQuery(u *url.URL, m mods) {
 func applyModsCookie(tp *Testparams, m mods) {
 	for _, change := range m {
 		tp.Cookiejar["wayf.dk"][change.Path] = &http.Cookie{Name: change.Path, Value: change.Value}
+	}
+}
+
+func applyModsMd(tp *Testparams, md string, m mods) {
+	for _, change := range m {
+		if md == "sp" {
+			ApplyModsXp(tp.Spmd, mods{change})
+		}
 	}
 }
 
