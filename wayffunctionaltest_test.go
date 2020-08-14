@@ -920,18 +920,61 @@ func ValidateSignature(md, xp *goxml.Xp) (err error) {
 }
 
 func TestSPSLO(t *testing.T) {
+	if dobirk {
+		return
+	}
 	stdoutstart()
 	res := browse(nil, nil)
 
     spMd, _ := internalMd.MDQ("https://wayfsp2.wayf.dk")
-
 	res = browse(nil, &overwrites{"Spmd": spMd, "Idp": "https://this.is.not.a.valid.external.idp", "Cookiejar": res.Cookiejar})
 	browseSLO(res)
-//	PP(res.Cookiejar)
 	expected := `logout this.is.not.a.valid.external.idp
 logout this.is.not.a.valid.idp
 logout wayfsp.wayf.dk
 logout wayfsp2.wayf.dk
+`
+	stdoutend(t, expected)
+}
+
+func TestSPSLONoSLOSupport(t *testing.T) {
+	if dobirk {
+		return
+	}
+	stdoutstart()
+	res := browse(nil, nil)
+    entityID := "https://wayfsp2.wayf.dk";
+	spMd, _ := internalMd.MDQ(entityID)
+	spMd.Rm(nil, "//md:SingleLogoutService")
+	mdqMap["int"][entityID] = spMd
+	mdqMap["int"][gosaml.IDHash(entityID)] = spMd
+	res = browse(nil, &overwrites{"Spmd": spMd, "Idp": "https://this.is.not.a.valid.external.idp", "Cookiejar": res.Cookiejar})
+	res.Spmd = spMd
+
+	browseSLO(res)
+	expected := `logout this.is.not.a.valid.external.idp
+logout this.is.not.a.valid.idp
+logout wayfsp.wayf.dk
+["cause:no SingleLogoutService found","entityID:https://wayfsp2.wayf.dk"]
+`
+	stdoutend(t, expected)
+}
+
+func TestSPSLOAsync(t *testing.T) {
+	if dobirk {
+		return
+	}
+	stdoutstart()
+	res := browse(nil, nil)
+
+	spMd, _ := internalMd.MDQ("https://wayfsp2.wayf.dk")
+	res = browse(nil, &overwrites{"Spmd": spMd, "Idp": "https://this.is.not.a.valid.external.idp", "Cookiejar": res.Cookiejar})
+	res.AsyncSLO = true
+	browseSLO(res)
+	expected := `logout this.is.not.a.valid.external.idp
+logout this.is.not.a.valid.idp
+logout wayfsp.wayf.dk
+SLO completed
 `
 	stdoutend(t, expected)
 }
