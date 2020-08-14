@@ -1485,6 +1485,35 @@ func TestFullAttributesetSAMLtojwt(t *testing.T) {
 }
 
 // TestFullAttributesetSP2 test that the full attributeset is delivered to the PHPH service
+func TestScopingMd(t *testing.T) {
+	if dobirk {
+		return
+	}
+	stdoutstart()
+	m := modsset{"mdspmods": mods{mod{"./md:Extensions/wayf:wayf/wayf:IDPList", "https://this.is.not.a.valid.idp", nil}}}
+	res := browse(m, nil)
+	if res != nil {
+		fmt.Printf("%t", res.PassedDisco)
+	}
+	expected := "false"
+	stdoutend(t, expected)
+}
+
+func TestScopingMdByDomain(t *testing.T) {
+	if dobirk {
+		return
+	}
+	stdoutstart()
+	m := modsset{"mdspmods": mods{mod{"./md:Extensions/wayf:wayf/wayf:IDPList", "not.really.a.valid.idp", nil}}}
+	res := browse(m, nil)
+	if res != nil {
+		fmt.Printf("%t", res.PassedDisco)
+	}
+	expected := "false"
+	stdoutend(t, expected)
+}
+
+// TestFullAttributesetSP2 test that the full attributeset is delivered to the PHPH service
 func TestScopingElement(t *testing.T) {
 	if dobirk {
 		return
