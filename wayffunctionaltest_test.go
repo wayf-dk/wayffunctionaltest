@@ -671,11 +671,11 @@ func browseSLO(tp *Testparams) {
 		}
 		tp.logxml(saml)
 		dest := saml.Query1(nil, "@Destination")
-	    u, _ = url.Parse(dest)
+		u, _ = url.Parse(dest)
 		fmt.Println("logout", u.Host)
-        if u.Host == finalIssuer.Host {
-            return
-        } else {
+		if u.Host == finalIssuer.Host {
+			return
+		} else {
 			spMd := tp.Hubspmd
 			if u.Host == "this.is.not.a.valid.external.idp" { // must send response to krib location
 				spMd, _ = externalSPMd.MDQ(tp.SP)
@@ -926,7 +926,7 @@ func TestSPSLO(t *testing.T) {
 	stdoutstart()
 	res := browse(nil, nil)
 
-    spMd, _ := internalMd.MDQ("https://wayfsp2.wayf.dk")
+	spMd, _ := internalMd.MDQ("https://wayfsp2.wayf.dk")
 	res = browse(nil, &overwrites{"Spmd": spMd, "Idp": "https://this.is.not.a.valid.external.idp", "Cookiejar": res.Cookiejar})
 	browseSLO(res)
 	expected := `logout this.is.not.a.valid.external.idp
