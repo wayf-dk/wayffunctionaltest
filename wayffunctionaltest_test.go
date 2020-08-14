@@ -130,7 +130,7 @@ var (
 	hub          = flag.String("hub", "wayf.wayf.dk", "the hostname for the hub server to be tested")
 	hubbe        = flag.String("hubbe", "", "the hub backend server")
 	ds           = flag.String("ds", "ds.wayf.dk", "the discovery server")
-	trace        = flag.Bool("xtrace", false, "trace the request/response flow")
+	trace        = flag.Bool("trace", false, "trace the request/response flow")
 	logxml       = flag.Bool("logxml", false, "dump requests/responses in xml")
 	env          = flag.String("env", "prod", "which environment to test dev, hybrid, prod - if not dev")
 	testcertpath = flag.String("testcertpath", "/etc/ssl/wayf/certs/wildcard.test.lan.pem", "path to the testing cert")
