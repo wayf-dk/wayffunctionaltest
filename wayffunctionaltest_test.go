@@ -623,7 +623,7 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 		tp.ConsentGiven = strings.Contains(string(tp.Responsebody), `,"BypassConfirmation":false`)
 		tp.logxml(tp.Newresponse)
 		if tp.SAML2jwtDoResponse {
-			attrs := tp.SAML2jwtResponse(data)
+			attrs := tp.SAML2jwtResponse()
 			PP(attrs)
 		} else {
 			err := ValidateSignature(tp.Firstidpmd, tp.Newresponse)
