@@ -358,7 +358,7 @@ func Newtp(overwrite *overwrites) (tp *Testparams) {
 	tp.Cookiejar = make(map[string]map[string]*http.Cookie)
 	tp.Cookiejar["wayf.dk"] = make(map[string]*http.Cookie)
 	tp.Cookiejar["wayf.dk"]["wayfid"] = &http.Cookie{Name: "wayfid", Value: *hubbe}
-	tp.Cookiejar["wayf.dk"]["debug"] = &http.Cookie{Name: "debug", Value: "trace=1"}
+	//	tp.Cookiejar["wayf.dk"]["debug"] = &http.Cookie{Name: "debug", Value: "trace=1"}
 
 	if overwrite != nil { // overwrite default values with test specific values while it still matters
 		for k, v := range *overwrite {
@@ -366,6 +366,7 @@ func Newtp(overwrite *overwrites) (tp *Testparams) {
 		}
 	}
 
+	tp.Spmd = goxml.NewXpFromNode(tp.Spmd.DocGetRootElement()) // ordinary CpXp shares the DOM, and that what we want to be able to modify
 	tp.FinalIdp = tp.Idp
 	tp.SP = tp.Spmd.Query1(nil, "@entityID")
 	tp.Hubidpmd, _ = hubMd.MDQ("https://wayf.wayf.dk")
