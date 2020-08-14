@@ -168,6 +168,8 @@ func TestMain(m *testing.M) {
 
 	log.Printf("hub: %q backend: %q %s\n", *hub, *hubbe, *env)
 
+    	goxml.Algos[""] = goxml.Algos["sha256"]
+
 	gosaml.AuthnRequestCookie = &gosaml.Hm{180, sha256.New, []byte("abcd")}
 
 	hubMd = &lmdq.MDQ{Path: "file:" + mdsources[*env]["hub"] + "?mode=ro", Table: "HYBRID_HUB"}
