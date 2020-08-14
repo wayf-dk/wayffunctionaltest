@@ -168,7 +168,7 @@ func TestMain(m *testing.M) {
 
 	log.Printf("hub: %q backend: %q %s\n", *hub, *hubbe, *env)
 
-    	goxml.Algos[""] = goxml.Algos["sha256"]
+	goxml.Algos[""] = goxml.Algos["sha256"]
 
 	gosaml.AuthnRequestCookie = &gosaml.Hm{180, sha256.New, []byte("abcd")}
 
@@ -531,11 +531,10 @@ func sp(m modsset, overwrite interface{}) (tp *Testparams, u *url.URL) {
 		applyModsCookie(tp, m["cookiemods"])
 		applyModsMd(tp, "sp", m["mdspmods"])
 	}
-    mdqMap["int"][tp.SP] = tp.Spmd
+	mdqMap["int"][tp.SP] = tp.Spmd
 	mdqMap["int"][gosaml.IDHash(tp.SP)] = tp.Spmd
-    mdqMap["int"][tp.Idp] = tp.Idpmd
+	mdqMap["int"][tp.Idp] = tp.Idpmd
 	mdqMap["int"][gosaml.IDHash(tp.Idp)] = tp.Idpmd
-
 
 	return
 }
@@ -943,7 +942,7 @@ func TestSPSLONoSLOSupport(t *testing.T) {
 	}
 	stdoutstart()
 	res := browse(nil, nil)
-    entityID := "https://wayfsp2.wayf.dk";
+	entityID := "https://wayfsp2.wayf.dk"
 	spMd, _ := internalMd.MDQ(entityID)
 	spMd.Rm(nil, "//md:SingleLogoutService")
 	mdqMap["int"][entityID] = spMd
