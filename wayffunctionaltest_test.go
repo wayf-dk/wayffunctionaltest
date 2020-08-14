@@ -72,6 +72,7 @@ type (
 		Jwt2SAML, SAML2jwt, Jwt2SAMLResponse                     string
 		Jwt2SAMLDoRequest, SAML2jwtDoRequest, SAML2jwtDoResponse bool
 		PassedDisco, CheckRequesterID                            bool
+		AsyncSLO                                                 bool
 	}
 
 	overwrites map[string]interface{}
