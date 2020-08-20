@@ -13,7 +13,6 @@ import (
 	"github.com/wayf-dk/gosaml"
 	"github.com/wayf-dk/goxml"
 	"github.com/wayf-dk/lmdq"
-	"github.com/y0ssar1an/q"
 	"io"
 	"io/ioutil"
 	"log"
@@ -38,7 +37,6 @@ const (
 var (
 	_ = log.Printf // For debugging; delete when done.
 	_ = fmt.Printf
-	_ = q.Q
 )
 
 type (
@@ -130,6 +128,7 @@ var (
 	hub          = flag.String("hub", "wayf.wayf.dk", "the hostname for the hub server to be tested")
 	hubbe        = flag.String("hubbe", "", "the hub backend server")
 	ds           = flag.String("ds", "ds.wayf.dk", "the discovery server")
+	testmdq      = flag.Bool("testmdq", false, "test with embedded mdq server")
 	trace        = flag.Bool("trace", false, "trace the request/response flow")
 	logxml       = flag.Bool("logxml", false, "dump requests/responses in xml")
 	env          = flag.String("env", "prod", "which environment to test dev, hybrid, prod - if not dev")
@@ -185,22 +184,24 @@ func TestMain(m *testing.M) {
 
 	mdMap = map[string]*lmdq.MDQ{"hub": hubMd, "int": internalMd, "idp": externalIdPMd, "sp": externalSPMd}
 
+	if *testmdq {
+
 	/*
 	   Internal MDQ server for being able to modify md for the hub on the fly ...
 	*/
 
-	httpMux := http.NewServeMux()
-	httpMux.Handle("/MDQ/", appHandler(mdq))
+		httpMux := http.NewServeMux()
+		httpMux.Handle("/MDQ/", appHandler(mdq))
 
-	go func() {
-		intf := "127.0.0.1:9999"
-		log.Println("listening on ", intf)
-		err := http.ListenAndServe(intf, &slashFix{httpMux})
-		if err != nil {
-			log.Printf("main(): %s\n", err)
-		}
-	}()
-
+		go func() {
+			intf := "127.0.0.1:9999"
+			log.Println("listening on ", intf)
+			err := http.ListenAndServe(intf, &slashFix{httpMux})
+			if err != nil {
+				log.Printf("main(): %s\n", err)
+			}
+		}()
+	}
 	// need non-birk, non-request.validate and non-IDPList SPs for testing ....
 	var numberOfTestSPs int
 	testSPs, numberOfTestSPs, _ = internalMd.MDQFilter("/md:EntityDescriptor/md:Extensions/wayf:wayf[wayf:federation='WAYF' and not(wayf:IDPList)]/../../md:SPSSODescriptor/..")
@@ -383,7 +384,6 @@ func Newtp(overwrite *overwrites) (tp *Testparams) {
 	case "birk":
 		tp.Firstidpmd = tp.Birkmd
 	}
-
 	tp.Attributestmt = newAttributeStatement(testAttributes)
 	cert := tp.Idpmd.Query1(nil, `//md:KeyDescriptor[@use="signing" or not(@use)]/ds:KeyInfo/ds:X509Data/ds:X509Certificate`)
 	if cert == "" {
@@ -937,17 +937,21 @@ logout wayfsp2.wayf.dk
 }
 
 func TestSPSLONoSLOSupport(t *testing.T) {
-	if dobirk {
+	if dobirk || !*testmdq {
 		return
 	}
 	stdoutstart()
-	res := browse(nil, nil)
+	m := modsset{"cookiemods": mods{mod{"testidp", "https://this.is.not.a.valid.idp", nil}}}
+
+	res := browse(m, nil)
 	entityID := "https://wayfsp2.wayf.dk"
 	spMd, _ := internalMd.MDQ(entityID)
 	spMd.Rm(nil, "//md:SingleLogoutService")
 	mdqMap["int"][entityID] = spMd
 	mdqMap["int"][gosaml.IDHash(entityID)] = spMd
-	res = browse(nil, &overwrites{"Spmd": spMd, "Idp": "https://this.is.not.a.valid.external.idp", "Cookiejar": res.Cookiejar})
+	idp := "https://this.is.not.a.valid.external.idp"
+	res = browse(nil, &overwrites{"Spmd": spMd, "Idp": idp, "Cookiejar": res.Cookiejar})
+
 	res.Spmd = spMd
 
 	browseSLO(res)
@@ -1485,7 +1489,7 @@ func TestFullAttributesetSAMLtojwt(t *testing.T) {
 
 // TestFullAttributesetSP2 test that the full attributeset is delivered to the PHPH service
 func TestScopingMd(t *testing.T) {
-	if dobirk {
+	if dobirk || !*testmdq {
 		return
 	}
 	stdoutstart()
@@ -1499,7 +1503,7 @@ func TestScopingMd(t *testing.T) {
 }
 
 func TestScopingMdByDomain(t *testing.T) {
-	if dobirk {
+	if dobirk || !*testmdq {
 		return
 	}
 	stdoutstart()
