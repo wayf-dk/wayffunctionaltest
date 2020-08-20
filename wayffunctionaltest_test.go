@@ -501,7 +501,7 @@ func (tp *Testparams) Jwt2SAMLDo(v url.Values) (err error) {
 	if resp.StatusCode != 200 {
 		return fmt.Errorf(string(body))
 	}
-	if len(v["jwt"]) != 0 {
+	if len(v["preflight"]) == 0 {
 		tp.Newresponse, tp.RelayState = gosaml.HTML2SAMLResponse(body)
 	} else {
 		tp.Jwt2SAMLResponse = string(body)
@@ -705,11 +705,13 @@ func (tp *Testparams) newresponse(u *url.URL) (err error) {
 			//tp.logxml(tp.Newresponse)
 			query := u.Query()
 			query.Add("sso", tp.FinalRequest.Query1(nil, "@Destination"))
+			query.Add("preflight", "1")
 
 			err = tp.Jwt2SAMLDo(query)
 			if err != nil {
 				return
 			}
+			query.Del("preflight")
 
 			attrs := map[string]interface{}{}
 			for k, v := range testAttributes {
@@ -1050,6 +1052,8 @@ func TestJwt2SAML(t *testing.T) {
   "AssertionConsumerServiceURL": [
     "https://wayf.wayf.dk/module.php/saml/sp/saml2-acs.php/wayf.wayf.dk"
   ],
+  "ForceAuthn": null,
+  "IsPassive": null,
   "Issuer": [
     "https://wayf.wayf.dk"
   ],
@@ -1066,6 +1070,9 @@ func TestJwt2SAML(t *testing.T) {
     "WAYF",
     "HUBIDP",
     "oes.dk"
+  ],
+  "protocol": [
+    "AuthnRequest"
   ],
   "spfeds": [
     "WAYF"
