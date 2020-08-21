@@ -51,6 +51,7 @@ type (
 		Idp, SP, BirkIdp, FinalIdp, Hybrid, RelayState     string
 		Spmd, Idpmd, Hubidpmd, Hubspmd, Birkmd, Firstidpmd *goxml.Xp
 		Cookiejar                                          map[string]map[string]*http.Cookie
+		Destination                                              *url.URL
 		//      Resolv                                             map[string]string
 		Method                                                   string
 		Initialrequest, FinalRequest                             *goxml.Xp
@@ -69,6 +70,7 @@ type (
 		ElementsToSign                                           []string
 		Jwt2SAML, SAML2jwt, Jwt2SAMLResponse                     string
 		Jwt2SAMLDoRequest, SAML2jwtDoRequest, SAML2jwtDoResponse bool
+		WSFedDoRequest                                           bool
 		PassedDisco, CheckRequesterID                            bool
 		AsyncSLO                                                 bool
 	}
@@ -186,9 +188,9 @@ func TestMain(m *testing.M) {
 
 	if *testmdq {
 
-	/*
-	   Internal MDQ server for being able to modify md for the hub on the fly ...
-	*/
+		/*
+		   Internal MDQ server for being able to modify md for the hub on the fly ...
+		*/
 
 		httpMux := http.NewServeMux()
 		httpMux.Handle("/MDQ/", appHandler(mdq))
@@ -502,10 +504,21 @@ func (tp *Testparams) Jwt2SAMLDo(v url.Values) (err error) {
 		return fmt.Errorf(string(body))
 	}
 	if len(v["preflight"]) == 0 {
-		tp.Newresponse, tp.RelayState = gosaml.HTML2SAMLResponse(body)
+		tp.Newresponse, tp.RelayState, _ = gosaml.HTML2SAMLResponse(body)
 	} else {
 		tp.Jwt2SAMLResponse = string(body)
 	}
+	return
+}
+
+func (tp *Testparams) WSFedRequest() (u *url.URL) {
+	u, _ = url.Parse(tp.Initialrequest.Query1(nil, "@Destination"))
+	q := u.Query()
+	q.Add("wa", "wsignin1.0")
+	q.Add("wctx", tp.RelayState)
+	q.Add("wtrealm", tp.Initialrequest.Query1(nil, "saml:Issuer"))
+	q.Add("wreply", tp.Initialrequest.Query1(nil, "./@AssertionConsumerServiceURL"))
+	u.RawQuery = q.Encode()
 	return
 }
 
@@ -523,6 +536,8 @@ func sp(m modsset, overwrite interface{}) (tp *Testparams, u *url.URL) {
 	tp.Initialrequest, _, _ = gosaml.NewAuthnRequest(nil, tp.Spmd, tp.Firstidpmd, "", []string{}, "", false, 0, 0)
 	if tp.SAML2jwtDoRequest {
 		u = tp.SAML2jwtRequest()
+	} else if tp.WSFedDoRequest {
+		u = tp.WSFedRequest()
 	} else {
 		ApplyModsXp(tp.Attributestmt, m["attributemods"])
 		ApplyModsXp(tp.Initialrequest, m["requestmods"])
@@ -552,8 +567,11 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 	for {
 		if phase == responding {
 			tp.logxml(tp.Newresponse)
+			u = tp.Destination // fall back if no @Destination - taken from form action
 			acs := tp.Newresponse.Query1(nil, "@Destination")
-			u, _ = url.Parse(acs)
+			if acs != "" {
+                u, _ = url.Parse(acs)
+            }
 			if u.Host == tp.Hybrid { // only change the response to the place we are actually testing (wayf|krib).wayf.dk
 				ApplyModsXp(tp.Newresponse, m["responsemods"])
 			}
@@ -821,21 +839,17 @@ func (tp *Testparams) sendRequest(url *url.URL, method, body string) (resp *http
 
 	// We didn't get a Location: header - we are POST'ing a SAMLResponse
 	var loc string
-	location, _ := resp.Location()
-	if location == nil {
-		samlresponse, _ = gosaml.HTML2SAMLResponse(responsebody)
-		if samlresponse != nil {
-			u, _ := url.Parse(samlresponse.Query1(nil, "@Destination"))
-			loc = u.Host + u.Path
-		}
+	tp.Destination, _ = resp.Location()
+	if tp.Destination == nil {
+		samlresponse, _, tp.Destination = gosaml.HTML2SAMLResponse(responsebody)
 	} else {
-		q := location.Query()
+		q := tp.Destination.Query()
 		req, _ := base64.StdEncoding.DecodeString(q.Get("SAMLRequest") + q.Get("SAMLResponse")) // never both at the same time
 		samlresponse = goxml.NewXp(gosaml.Inflate(req))
-		loc = location.Host + location.Path
 	}
 
 	if tp.Trace {
+		loc = tp.Destination.Host + tp.Destination.Path
 		log.Printf("%-4s %-70s %s %-15s %s\n", req.Method, host+req.URL.Path, resp.Proto, resp.Status, loc)
 	}
 
@@ -903,7 +917,7 @@ func ValidateSignature(md, xp *goxml.Xp) (err error) {
 		err = errors.New("no certificates found in metadata")
 		return
 	}
-	signatures := xp.Query(nil, "(/samlp:Response[ds:Signature] | /samlp:Response/saml:Assertion[ds:Signature])")
+	signatures := xp.Query(nil, "(/samlp:Response[ds:Signature] | /samlp:Response/saml:Assertion[ds:Signature] | /t:RequestSecurityTokenResponse//saml1:Assertion)")
 	destination := xp.Query1(nil, "/samlp:Response/@Destination")
 
 	if len(signatures) == 0 {
@@ -1491,6 +1505,67 @@ func TestFullAttributesetSAMLtojwt(t *testing.T) {
 }
 `
 	browse(nil, &overwrites{"SAML2jwtDoRequest": true, "SAML2jwtDoResponse": true})
+	stdoutend(t, expected)
+}
+
+// TestFullAttributeset1 test that the full attributeset is delivered to the default test sp
+func TestFullAttributesetWSFed(t *testing.T) {
+	var expected string
+	stdoutstart()
+	// common res for hub and birk
+	expected += `cn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    Anton Banton Cantonsen
+eduPersonAffiliation urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    alum
+    member
+    student
+eduPersonAssurance urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    2
+eduPersonEntitlement urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    https://example.com/course101
+eduPersonPrimaryAffiliation urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    student
+eduPersonPrincipalName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    joe@this.is.not.a.valid.idp
+eduPersonScopedAffiliation urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    alum@this.is.not.a.valid.idp
+    member@this.is.not.a.valid.idp
+    student@this.is.not.a.valid.idp
+eduPersonTargetedID urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    {{.eptid}}
+entryUUID urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    entryUUID
+gn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    Anton Banton &lt;SamlRequest id=&#34;abc&#34;&gt;abc&lt;/SamlRequest&gt;
+mail urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    joe@example.com
+norEduPersonLIN urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    123456789
+organizationName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    Orphanage - home for the homeless
+preferredLanguage urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    da
+schacCountryOfCitizenship urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    dk
+schacDateOfBirth urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    18580824
+schacHomeOrganization urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    this.is.not.a.valid.idp
+schacHomeOrganizationType urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    urn:mace:terena.org:schac:homeOrganizationType:int:other
+schacPersonalUniqueID urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    urn:mace:terena.org:schac:personalUniqueID:dk:CPR:2408586234
+schacYearOfBirth urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    1858
+sn NameStandIn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    Cantonsen
+sn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    Cantonsen
+`
+	res := browse(nil, &overwrites{"WSFedDoRequest": true})
+	if res != nil {
+		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
+	}
 	stdoutend(t, expected)
 }
 
