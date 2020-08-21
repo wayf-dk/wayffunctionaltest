@@ -12,3 +12,12 @@ require (
 	github.com/wayf-dk/goxml v0.0.0-20200814223832-adc46d6f7b13
 	github.com/wayf-dk/lmdq v0.0.0-20200814231607-c2ca41543d75
 )
+
+replace (
+	github.com/wayf-dk/go-libxml2 => ../go-libxml2
+	github.com/wayf-dk/godiscoveryservice => ../godiscoveryservice
+	github.com/wayf-dk/goeleven => ../goeleven
+	github.com/wayf-dk/gosaml => ../gosaml
+	github.com/wayf-dk/goxml => ../goxml
+	github.com/wayf-dk/lmdq => ../lmdq
+)
