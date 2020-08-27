@@ -215,7 +215,7 @@ func TestMain(m *testing.M) {
 	*do = "hub"
 	dohub = true
 	r := m.Run()
-	os.Exit(r)
+	//os.Exit(r)
 
 	*do = "birk"
 	dohub = false
@@ -1293,6 +1293,19 @@ func TestFullAttributeset(t *testing.T) {
 		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
 	}
 	stdoutend(t, fullAttributeSet)
+}
+
+func TestInternalAttributeSet(t *testing.T) {
+	if dobirk || !*testmdq {
+		return
+	}
+	stdoutstart()
+	m := modsset{"mdspmods": mods{mod{"./md:Extensions/wayf:wayf/wayf:RequestedAttributesEqualsStar", "true", nil}}}
+	res := browse(m, nil)
+	if res != nil {
+		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
+	}
+	stdoutend(t, "abc")
 }
 
 // TestFullAttributeset1 test that the full attributeset is delivered to the default test sp
