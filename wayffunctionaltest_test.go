@@ -80,7 +80,7 @@ type (
 
 	mod struct {
 		Path, Value string
-	    Function    func(*goxml.Xp, mod)
+		Function    func(*goxml.Xp, mod)
 	}
 
 	mods []mod
@@ -149,7 +149,7 @@ func TestMain(m *testing.M) {
 	log.Printf("hub: %q backend: %q %s\n", *hub, *hubbe, *env)
 
 	gosaml.Config = gosaml.Conf{
-		CertPath:   "signing/",
+		CertPath: "signing/",
 	}
 
 	goxml.Algos[""] = goxml.Algos["sha256"]
@@ -313,15 +313,15 @@ func stdoutend(t *testing.T, expected string, re ...string) {
 		//      t.Errorf("unexpected empty expected string\n")
 	}
 	if len(re) != 0 {
-	    repl := "$1"
-	    if len(re) > 1 {
-	        repl = re[1]
-	    }
+		repl := "$1"
+		if len(re) > 1 {
+			repl = re[1]
+		}
 		got = regexp.MustCompile(re[0]).ReplaceAllString(got, repl)
 	}
-    if expected != got {
-        t.Errorf("\nexpected:\n%s\ngot:\n%s\n", expected, got)
-    }
+	if expected != got {
+		t.Errorf("\nexpected:\n%s\ngot:\n%s\n", expected, got)
+	}
 }
 
 func Newtp(overwrite *overwrites) (tp *Testparams) {
@@ -518,10 +518,10 @@ func initialRequest(m modsset, overwrite interface{}) (tp *Testparams, u *url.UR
 		ApplyModsXp(tp.Initialrequest, m["requestmods"])
 		u, _ = gosaml.SAMLRequest2URL(tp.Initialrequest, "", "", "", "")
 		if tp.Method == "POST" {
-		    body = url.Values{
-		        "SAMLRequest": []string{base64.StdEncoding.EncodeToString([]byte(tp.Initialrequest.Dump()))},
-       			"RelayState":   []string{tp.RelayState},
-            }.Encode()
+			body = url.Values{
+				"SAMLRequest": []string{base64.StdEncoding.EncodeToString([]byte(tp.Initialrequest.Dump()))},
+				"RelayState":  []string{tp.RelayState},
+			}.Encode()
 			u.RawQuery = ""
 		}
 		applyModsQuery(u, m["querymods"])
@@ -648,10 +648,10 @@ func browseSLO(tp *Testparams) {
 	}
 
 	sloRecs := map[string]sloRec{
-		"https://this.is.not.a.valid.external.idp/SLO":                              {"https://this.is.not.a.valid.external.idp", gosaml.SPRole},
-		"https://this.is.not.a.valid.idp/SLO":                                       {"https://this.is.not.a.valid.idp", gosaml.SPRole},
-		"https://wayfsp.wayf.dk/ss/module.php/saml/sp/saml2-logout.php/default-sp":  {"https://wayfsp.wayf.dk", gosaml.IDPRole},
-		"https://wayfsp2.wayf.dk/ss/module.php/saml/sp/saml2-logout.php/default-sp": {"https://wayfsp2.wayf.dk", gosaml.IDPRole},
+		"https://this.is.not.a.valid.external.idp/SLO": {"https://this.is.not.a.valid.external.idp", gosaml.SPRole},
+		"https://this.is.not.a.valid.idp/SLO":          {"https://this.is.not.a.valid.idp", gosaml.SPRole},
+		"https://wayfsp.wayf.dk/SLO":                   {"https://wayfsp.wayf.dk", gosaml.IDPRole},
+		"https://wayfsp2.wayf.dk/SLO":                  {"https://wayfsp2.wayf.dk", gosaml.IDPRole},
 	}
 
 	context := tp.Newresponse.Query(nil, "/samlp:Response/saml:Assertion")[0]
@@ -861,7 +861,7 @@ func (tp *Testparams) newresponse(u *url.URL, m mods) (err error) {
 			attrStmt := tp.Attributestmt.Query(nil, "//saml:AttributeStatement")[0]
 			tp.Newresponse.Query(nil, "/samlp:Response/saml:Assertion")[0].AddChild(tp.Newresponse.CopyNode(attrStmt, 1))
 
-            ApplyModsXp(tp.Newresponse, m)
+			ApplyModsXp(tp.Newresponse, m)
 
 			for _, xpath := range tp.ElementsToSign {
 				element := tp.Newresponse.Query(nil, xpath)[0]
@@ -1244,19 +1244,17 @@ func TestTransientNameID(t *testing.T) {
 	stdoutend(t, expected)
 }
 
-
 // TestUnspecifiedNameID tests that the
 func TestUnspecifiedNameID(t *testing.T) {
-    stdoutstart()
-    m := modsset{"requestmods": mods{mod{"/samlp:NameIDPolicy[1]/@Format", "urn:oasis:names:tc:SAML:2.0:nameid-format:unspecified", nil}}}
-    // BIRK always sends NameIDPolicy/@Format=transient - but respects what the hub sends back - thus we need to fix the request BIRK sends to the hub (WAYFMMISC-940)
-    // n := modsset{"birkrequestmods": m["requestmods"]}
-    browse(m, nil)
-    expected := `nameidpolicy format: 'urn:oasis:names:tc:SAML:2.0:nameid-format:unspecified' is not supported
+	stdoutstart()
+	m := modsset{"requestmods": mods{mod{"/samlp:NameIDPolicy[1]/@Format", "urn:oasis:names:tc:SAML:2.0:nameid-format:unspecified", nil}}}
+	// BIRK always sends NameIDPolicy/@Format=transient - but respects what the hub sends back - thus we need to fix the request BIRK sends to the hub (WAYFMMISC-940)
+	// n := modsset{"birkrequestmods": m["requestmods"]}
+	browse(m, nil)
+	expected := `nameidpolicy format: 'urn:oasis:names:tc:SAML:2.0:nameid-format:unspecified' is not supported
 `
-    stdoutend(t, expected)
+	stdoutend(t, expected)
 }
-
 
 func xTestNemLogin(t *testing.T) {
 	var expected string
@@ -1533,18 +1531,17 @@ func TestNoSignatureError(t *testing.T) {
 func TestAuthnPassThru(t *testing.T) {
 	stdoutstart()
 	checks := [][]string{
-        {"saml:Assertion/saml:AuthnStatement/@AuthnInstant", "2006-01-02T15:04:05Z" },
-        {"saml:Assertion/saml:AuthnStatement/@SessionNotOnOrAfter", "2006-01-02T15:04:05Z"},
-        {"saml:Assertion/saml:AuthnStatement/saml:AuthnContext/saml:AuthnContextClassRef", "AuthnContextClassRefTestValue"},
+		{"saml:Assertion/saml:AuthnStatement/@AuthnInstant", "2006-01-02T15:04:05Z"},
+		{"saml:Assertion/saml:AuthnStatement/@SessionNotOnOrAfter", "2006-01-02T15:04:05Z"},
+		{"saml:Assertion/saml:AuthnStatement/saml:AuthnContext/saml:AuthnContextClassRef", "AuthnContextClassRefTestValue"},
 	}
 
-
-    for _, check := range checks {
-        	m := modsset{"presigningresponsemods": mods{mod{check[0], check[1], nil}}}
-	    res := browse(m, nil)
-        if res != nil {
-            fmt.Println(res.Newresponse.Query1(nil, check[0]))
-        }
+	for _, check := range checks {
+		m := modsset{"presigningresponsemods": mods{mod{check[0], check[1], nil}}}
+		res := browse(m, nil)
+		if res != nil {
+			fmt.Println(res.Newresponse.Query1(nil, check[0]))
+		}
 	}
 	expected := `2006-01-02T15:04:05Z
 2006-01-02T15:04:05Z
@@ -1554,25 +1551,25 @@ AuthnContextClassRefTestValue
 }
 
 func TestTiming(t *testing.T) {
-    diffs := []string{"300", "-300",  "600", "-600"}
-    checks :=[]string {
-        "@IssueInstant",
-        "saml:Assertion[1]/@IssueInstant",
-        "saml:Assertion[1]/saml:Subject/saml:SubjectConfirmation/saml:SubjectConfirmationData/@NotOnOrAfter",
-        "saml:Assertion[1]/saml:Conditions/@NotBefore",
-        "saml:Assertion[1]/saml:Conditions/@NotOnOrAfter",
-//			"/samlp:Response[1]/saml:Assertion[1]/saml:AuthnStatement/@AuthnInstant",
-//			"/samlp:Response[1]/saml:Assertion[1]/saml:AuthnStatement/@SessionNotOnOrAfter",
-    }
+	diffs := []string{"300", "-300", "600", "-600"}
+	checks := []string{
+		"@IssueInstant",
+		"saml:Assertion[1]/@IssueInstant",
+		"saml:Assertion[1]/saml:Subject/saml:SubjectConfirmation/saml:SubjectConfirmationData/@NotOnOrAfter",
+		"saml:Assertion[1]/saml:Conditions/@NotBefore",
+		"saml:Assertion[1]/saml:Conditions/@NotOnOrAfter",
+		//			"/samlp:Response[1]/saml:Assertion[1]/saml:AuthnStatement/@AuthnInstant",
+		//			"/samlp:Response[1]/saml:Assertion[1]/saml:AuthnStatement/@SessionNotOnOrAfter",
+	}
 
 	stdoutstart()
-    for _, diff := range diffs {
-        for _, check := range checks {
-            	m := modsset{"presigningresponsemods": mods{mod{check, diff, moddate}}}
-            	browse(m, nil)
-        }
+	for _, diff := range diffs {
+		for _, check := range checks {
+			m := modsset{"presigningresponsemods": mods{mod{check, diff, moddate}}}
+			browse(m, nil)
+		}
 	}
-    expected := `timing problem: /samlp:Response[1]/@IssueInstant
+	expected := `timing problem: /samlp:Response[1]/@IssueInstant
 timing problem: /samlp:Response[1]/saml:Assertion[1]/@IssueInstant
 timing problem: /samlp:Response[1]/saml:Assertion[1]/saml:Conditions/@NotBefore
 timing problem: /samlp:Response[1]/@IssueInstant
@@ -1593,8 +1590,8 @@ func moddate(xp *goxml.Xp, m mod) {
 	samltime, _ := time.Parse(gosaml.XsDateTime, xmltime)
 	diff, _ := strconv.Atoi(m.Value)
 	newSamlTime := samltime.Add(time.Duration(diff) * time.Second).UTC()
-    xmltime2 := newSamlTime.Format(gosaml.XsDateTime)
-    xp.QueryDashP(nil, m.Path, xmltime2, nil)
+	xmltime2 := newSamlTime.Format(gosaml.XsDateTime)
+	xp.QueryDashP(nil, m.Path, xmltime2, nil)
 }
 
 // TestUnknownKeySignatureError tests if the hub and BIRK reacts on signing with an unknown key
