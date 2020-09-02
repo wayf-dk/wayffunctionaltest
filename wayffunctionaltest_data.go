@@ -204,7 +204,90 @@ sn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     ]
 }
 `
-
+    fullInternalAttributeSet = `AuthnContextClassRef
+Issuer
+    https://this.is.not.a.valid.idp
+cn
+    Anton Banton Cantonsen
+commonfederations
+    true
+displayName
+    Anton Banton Cantonsen
+eduPersonAffiliation
+    alum
+    member
+    student
+eduPersonAssurance
+    2
+eduPersonEntitlement
+    https://example.com/course101
+eduPersonPrimaryAffiliation
+    student
+eduPersonPrincipalName
+    joe@this.is.not.a.valid.idp
+eduPersonScopedAffiliation
+    alum@this.is.not.a.valid.idp
+    member@this.is.not.a.valid.idp
+    student@this.is.not.a.valid.idp
+eduPersonTargetedID
+    WAYF-DK-c52a92a5467ae336a2be77cd06719c645e72dfd2
+entryUUID
+    entryUUID
+gn
+    Anton Banton &lt;SamlRequest id=&#34;abc&#34;&gt;abc&lt;/SamlRequest&gt;
+hub
+    false
+idpID
+    https://this.is.not.a.valid.idp
+idpfeds
+    HUBIDP
+    WAYF
+    oes.dk
+mail
+    joe@example.com
+modstlogonmethod
+    username-password-protected-transport
+nemlogin
+    false
+norEduPersonLIN
+    123456789
+oioCvrNumberIdentifier
+    12345678
+organizationName
+    This Is Not A Valid IdP!
+pairwise-id
+persistent
+preferredLanguage
+    da
+schacCountryOfCitizenship
+    dk
+schacDateOfBirth
+    18580824
+schacHomeOrganization
+    this.is.not.a.valid.idp
+schacHomeOrganizationType
+    urn:mace:terena.org:schac:homeOrganizationType:int:other
+schacPersonalUniqueID
+    urn:mace:terena.org:schac:personalUniqueID:dk:CPR:2408586234
+schacYearOfBirth
+    1858
+securitydomain
+    this.is.not.a.valid.idp
+sn
+    Cantonsen
+spID
+    https://wayfsp.wayf.dk
+spfeds
+    WAYF
+    eduGAIN
+    nemlog-in.dk
+    qa.kmd.dk
+    test.wayf.dk
+subsecuritydomain
+    this.is.not.a.valid.idp
+uid
+    joe
+`
 
 
 )
