@@ -103,7 +103,7 @@ var (
 
 	hubMd, internalMd, externalIdPMd, externalSPMd *lmdq.MDQ
 	mdMap                                          map[string]*lmdq.MDQ
-	mdqMap                                         = map[string]map[string]*goxml.Xp{"int": {}}
+	mdqMap                                         map[string]map[string]*goxml.Xp
 
 	do           = flag.String("do", "hub", "Which tests to run")
 	hub          = flag.String("hub", "wayf.wayf.dk", "the hostname for the hub server to be tested")
@@ -215,7 +215,7 @@ func TestMain(m *testing.M) {
 	*do = "hub"
 	dohub = true
 	r := m.Run()
-	//os.Exit(r)
+	os.Exit(r)
 
 	*do = "birk"
 	dohub = false
@@ -320,8 +320,19 @@ func stdoutend(t *testing.T, expected string, re ...string) {
 		got = regexp.MustCompile(re[0]).ReplaceAllString(got, repl)
 	}
 	if expected != got {
-		t.Errorf("\nexpected:\n%s\ngot:\n%s\n", expected, got)
+		t.Errorf("\nexpected:\n%s\ngot:\n%s\n%s\n", expected, got, diff(expected, got))
 	}
+}
+
+func diff(str1, str2 string) (str string) {
+	slice1 := strings.Split(str1, "\n")
+	slice2 := strings.Split(str2, "\n")
+	for i, line := range slice1 {
+		if line != slice2[i] {
+			return fmt.Sprintf("\ndiff:\n%s\n%s\n", line, slice2[i])
+		}
+	}
+	return
 }
 
 func Newtp(overwrite *overwrites) (tp *Testparams) {
@@ -528,12 +539,22 @@ func initialRequest(m modsset, overwrite interface{}) (tp *Testparams, u *url.UR
 		applyModsCookie(tp, m["cookiemods"])
 	}
 	if *testmdq {
-		applyModsMd(tp, "sp", m["mdspmods"])
-		mdqMap["int"] = map[string]*goxml.Xp{}
-		mdqMap["int"][tp.SP] = tp.Spmd
-		mdqMap["int"][gosaml.IDHash(tp.SP)] = tp.Spmd
-		mdqMap["int"][tp.Idp] = tp.Idpmd
-		mdqMap["int"][gosaml.IDHash(tp.Idp)] = tp.Idpmd
+        mdqMap = map[string]map[string]*goxml.Xp{"int": {}, "idp": {}}
+    		if len(m["mdspmods"]) > 0 {
+			ApplyModsXp(tp.Spmd, m["mdspmods"])
+			mdqMap["int"][tp.SP] = tp.Spmd
+			mdqMap["int"][gosaml.IDHash(tp.SP)] = tp.Spmd
+		}
+		if len(m["mdidpmods"]) > 0 {
+			ApplyModsXp(tp.Idpmd, m["mdidpmods"])
+			mdqMap["int"][tp.Idp] = tp.Idpmd
+			mdqMap["int"][gosaml.IDHash(tp.Idp)] = tp.Idpmd
+		}
+		if len(m["mdexternalidpmods"]) > 0 {
+			ApplyModsXp(tp.Idpmd, m["mdexternalidpmods"])
+			mdqMap["idp"][tp.Idp] = tp.Idpmd
+			mdqMap["idp"][gosaml.IDHash(tp.Idp)] = tp.Idpmd
+		}
 	}
 	return
 }
@@ -541,6 +562,7 @@ func initialRequest(m modsset, overwrite interface{}) (tp *Testparams, u *url.UR
 // Does what the browser does follow redirects and POSTs and displays errors
 func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 	var data url.Values
+
 	tp, u, body := initialRequest(m, overwrite)
 	// when to stop
 	finalDestination, _ := url.Parse(tp.Initialrequest.Query1(nil, "./@AssertionConsumerServiceURL"))
@@ -551,6 +573,7 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 		tp.logxml(u)
 		tp.Resp, tp.Responsebody, samlresponse, tp.Err = tp.sendRequest(u, body)
 		if tp.Err != nil {
+			//log.Println(tp.Err)
 			fmt.Println(tp.Err)
 			return nil
 			//log.Panic(tp.Err)
@@ -711,6 +734,7 @@ func (tp *Testparams) sendRequest(url *url.URL, body string) (resp *http.Respons
 	}
 
 	req.Header.Add("Host", host)
+
 	resp, err = client.Do(req)
 	if err != nil && !strings.HasSuffix(err.Error(), "redirect-not-allowed") {
 		// we need to do the redirect ourselves so a self inflicted redirect "error" is not an error
@@ -796,14 +820,6 @@ func applyModsQuery(u *url.URL, m mods) {
 func applyModsCookie(tp *Testparams, m mods) {
 	for _, change := range m {
 		tp.Cookiejar["wayf.dk"][change.Path] = &http.Cookie{Name: change.Path, Value: change.Value}
-	}
-}
-
-func applyModsMd(tp *Testparams, md string, m mods) {
-	for _, change := range m {
-		if md == "sp" {
-			ApplyModsXp(tp.Spmd, mods{change})
-		}
 	}
 }
 
@@ -945,17 +961,17 @@ func TestSPSLONoSLOSupport(t *testing.T) {
 	}
 	stdoutstart()
 	m := modsset{"cookiemods": mods{mod{"testidp", "https://this.is.not.a.valid.idp", nil}}}
-
 	res := browse(m, nil)
+
 	entityID := "https://wayfsp2.wayf.dk"
 	spMd, _ := internalMd.MDQ(entityID)
 	spMd.Rm(nil, "//md:SingleLogoutService")
-	mdqMap["int"][entityID] = spMd
-	mdqMap["int"][gosaml.IDHash(entityID)] = spMd
 	idp := "https://this.is.not.a.valid.external.idp"
 	res = browse(nil, &overwrites{"Spmd": spMd, "Idp": idp, "Cookiejar": res.Cookiejar})
 
-	res.Spmd = spMd
+    // browseSLO does currently not support modsets or overwrites så set the mdqMap entry for the modified sp here
+	mdqMap["int"][entityID] = spMd
+	mdqMap["int"][gosaml.IDHash(entityID)] = spMd
 
 	browseSLO(res)
 	expected := `logout this.is.not.a.valid.external.idp
@@ -1333,9 +1349,10 @@ func TestInternalAttributeSet(t *testing.T) {
 	m := modsset{"mdspmods": mods{mod{"./md:Extensions/wayf:wayf/wayf:RequestedAttributesEqualsStar", "true", nil}}}
 	res := browse(m, nil)
 	if res != nil {
+		res.Newresponse.Rm(nil, `//saml:Attribute[@Name="nameID"]`) // transient get rid of it - always different
 		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
 	}
-	stdoutend(t, "abc")
+	stdoutend(t, fullInternalAttributeSet)
 }
 
 // TestFullAttributeset1 test that the full attributeset is delivered to the default test sp
