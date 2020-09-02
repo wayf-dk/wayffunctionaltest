@@ -1056,6 +1056,38 @@ func TestJwt2SAML(t *testing.T) {
 	stdoutend(t, jwt2SAMLPreflight)
 }
 
+func TestSpecialsubdomain(t *testing.T) {
+	stdoutstart()
+	m := modsset{
+		"presigningresponsemods": mods{
+			mod{"./saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name=\"eduPersonPrincipalName\"]/saml:AttributeValue", "joe@sub.this.is.not.a.valid.idp", nil},
+		}}
+	res := browse(m, nil)
+	if res != nil {
+		fmt.Printf("%t", res.PassedDisco)
+	}
+	expected := `["cause:security domain 'sub.this.is.not.a.valid.idp' does not match any scopes"]
+`
+    if *testmdq {
+        m = modsset{
+            "presigningresponsemods": mods{
+                mod{"./saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name=\"eduPersonPrincipalName\"]/saml:AttributeValue", "joe@sub.ku.dk", nil},
+                mod{"./saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name=\"eduPersonScopedAffiliation\"]/saml:AttributeValue", "", nil},
+                mod{"./saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name=\"eduPersonScopedAffiliation\"]/saml:AttributeValue", "student@ku.dk", nil}},
+            "mdexternalidpmods": mods{
+                mod{"./md:IDPSSODescriptor/md:Extensions/shibmd:Scope", "sub.ku.dk", nil}},
+        }
+        res = browse(m, nil)
+        if res != nil {
+            epsa := res.Newresponse.Query1(nil, `//saml:Attribute[@Name="eduPersonScopedAffiliation"]/saml:AttributeValue`)
+            fmt.Println(epsa)
+        }
+        expected += `student@ku.dk
+`
+    }
+	stdoutend(t, expected)
+}
+
 func TestKrib(t *testing.T) {
 	if dobirk {
 		return
