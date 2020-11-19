@@ -327,9 +327,13 @@ func stdoutend(t *testing.T, expected string, re ...string) {
 func diff(str1, str2 string) (str string) {
 	slice1 := strings.Split(str1, "\n")
 	slice2 := strings.Split(str2, "\n")
-	for i, line := range slice1 {
-		if line != slice2[i] {
-			return fmt.Sprintf("\ndiff:\n%s\n%s\n", line, slice2[i])
+	for i, line1 := range slice1 {
+	    line2 := ""
+	    if len(slice2) > i {
+	        line2 = slice2[i]
+	    }
+		if line1 != line2 {
+			return fmt.Sprintf("\ndiff:\n%s\n%s\n", line1, line2)
 		}
 	}
 	return
