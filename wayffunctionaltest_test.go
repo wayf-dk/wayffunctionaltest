@@ -941,6 +941,31 @@ func ValidateSignature(md, xp *goxml.Xp) (err error) {
 	return
 }
 
+func TestEduGAINeptid(t *testing.T) {
+	stdoutstart()
+	eID := testSPs.Query1(nil, "//wayf:wayf[wayf:feds='eduGAIN' and wayf:AttributeNameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:uri']/../../md:SPSSODescriptor[md:AttributeConsumingService/md:RequestedAttribute/@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10']/../@entityID")
+	spMd, _ := internalMd.MDQ(eID)
+    if spMd == nil {
+        log.Fatalln("No SP found for testing eduGAIN eptid format: ")
+    }
+	res := browse(nil, &overwrites{"Spmd": spMd})
+	if res != nil {
+		fmt.Print(res.Newresponse.PPE(res.Newresponse.Query(nil, `//saml:Attribute[@Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.10"]`)[0]))
+	}
+
+	expected := `<saml:Attribute Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.10"
+                NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:uri"
+                FriendlyName="eduPersonTargetedID">
+    <saml:AttributeValue>
+        <saml:NameID>
+          WAYF-DK-7e0ad4ac0f934709fa8182ddd331b44bf641317d
+        </saml:NameID>
+    </saml:AttributeValue>
+</saml:Attribute>
+`
+	stdoutend(t, expected)
+}
+
 func TestSPSLO(t *testing.T) {
 	if dobirk {
 		return
