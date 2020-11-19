@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"math/rand"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -215,7 +216,7 @@ func TestMain(m *testing.M) {
 	*do = "hub"
 	dohub = true
 	r := m.Run()
-	os.Exit(r)
+	//os.Exit(r)
 
 	*do = "birk"
 	dohub = false
@@ -268,6 +269,7 @@ func mdq(w http.ResponseWriter, r *http.Request) (err error) {
 	w.Header().Set("Content-Type", "application/samlmetadata+xml")
 	w.Header().Set("Content-Length", strconv.Itoa(len(xml)))
 	w.Write([]byte(xml))
+	//log.Print(xp.PP())
 	return
 }
 
@@ -371,7 +373,9 @@ func Newtp(overwrite *overwrites) (tp *Testparams) {
 		}
 	}
 
-	tp.Spmd = goxml.NewXpFromNode(tp.Spmd.DocGetRootElement()) // ordinary CpXp shares the DOM, and that what we want to be able to modify
+    root := tp.Spmd.DocGetRootElement()
+	tp.Spmd = goxml.NewXpFromNode(root) // ordinary CpXp shares the DOM, and thats what we want to be able to modify
+
 	tp.FinalIdp = tp.Idp
 	tp.SP = tp.Spmd.Query1(nil, "@entityID")
 	tp.Hubidpmd, _ = hubMd.MDQ("https://wayf.wayf.dk")
@@ -390,7 +394,7 @@ func Newtp(overwrite *overwrites) (tp *Testparams) {
 	}
 	tp.Attributestmt = newAttributeStatement(testAttributes)
 
-	pk, cert, _ := gosaml.GetPrivateKey(tp.Idpmd)
+	pk, cert, _ := gosaml.GetPrivateKey(tp.Idpmd, "md:IDPSSODescriptor"+gosaml.SigningCertQuery)
 	tp.Privatekey, tp.Certificate = string(pk), cert
 
 	// due to dependencies on tp.Idpmd we need to overwrite again for specific keys
@@ -524,6 +528,7 @@ func initialRequest(m modsset, overwrite interface{}) (tp *Testparams, u *url.UR
 	}
 
 	tp.Initialrequest, _, _ = gosaml.NewAuthnRequest(nil, tp.Spmd, tp.Firstidpmd, "", []string{}, "", false, 0, 0)
+
 	if tp.SAML2jwtDoRequest {
 		u = tp.SAML2jwtRequest()
 	} else if tp.WSFedDoRequest {
@@ -555,9 +560,9 @@ func initialRequest(m modsset, overwrite interface{}) (tp *Testparams, u *url.UR
 			mdqMap["int"][gosaml.IDHash(tp.Idp)] = tp.Idpmd
 		}
 		if len(m["mdexternalidpmods"]) > 0 {
-			ApplyModsXp(tp.Idpmd, m["mdexternalidpmods"])
-			mdqMap["idp"][tp.Idp] = tp.Idpmd
-			mdqMap["idp"][gosaml.IDHash(tp.Idp)] = tp.Idpmd
+			ApplyModsXp(tp.Birkmd, m["mdexternalidpmods"])
+			mdqMap["idp"][tp.Idp] = tp.Birkmd
+			mdqMap["idp"][gosaml.IDHash(tp.Idp)] = tp.Birkmd
 		}
 	}
 	return
@@ -573,6 +578,7 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 	finalIdp, _ := url.Parse(tp.FinalIdp)
 	redirects := 7
 	var samlresponse *goxml.Xp
+
 	for { // Sending requests upstream
 		tp.logxml(u)
 		tp.Resp, tp.Responsebody, samlresponse, tp.Err = tp.sendRequest(u, body)
@@ -682,7 +688,7 @@ func browseSLO(tp *Testparams) {
 	}
 
 	context := tp.Newresponse.Query(nil, "/samlp:Response/saml:Assertion")[0]
-	sloinfo := gosaml.NewSLOInfo(tp.Newresponse, context, tp.Spmd.Query1(nil, "@entityID"), false, gosaml.SPRole)
+	sloinfo := gosaml.NewSLOInfo(tp.Newresponse, context, tp.Spmd.Query1(nil, "@entityID"), false, gosaml.SPRole, "")
 	slo, _, _ := gosaml.NewLogoutRequest(tp.Hubidpmd, sloinfo, tp.Spmd.Query1(nil, "@entityID"), tp.AsyncSLO)
 	slo.QueryDashP(nil, "@ID", gosaml.ID(), nil)
 	finalIssuer, _ := url.Parse(slo.Query1(nil, "./saml:Issuer"))
@@ -743,6 +749,10 @@ func (tp *Testparams) sendRequest(url *url.URL, body string) (resp *http.Respons
 	if err != nil && !strings.HasSuffix(err.Error(), "redirect-not-allowed") {
 		// we need to do the redirect ourselves so a self inflicted redirect "error" is not an error
 		// debug.PrintStack()
+		if strings.HasSuffix(err.Error(), "connect: connection refused") {
+		    PP(err)
+		    log.Panic(err)
+		}
 		return nil, nil, nil, err
 	}
 
@@ -860,6 +870,7 @@ func (tp *Testparams) newresponse(u *url.URL, m mods) (err error) {
 				attrs[k] = v
 			}
 			attrs["iat"] = time.Now().Unix()
+			attrs["saml:AuthnContextClassRef"] = "fake"
 
 			body, err := json.Marshal(attrs)
 			if err != nil {
@@ -904,8 +915,7 @@ func (tp *Testparams) newresponse(u *url.URL, m mods) (err error) {
 
 				_, publickey, _ := gosaml.PublicKeyInfo(cert)
 
-				ea := goxml.NewXpFromString(`<saml:EncryptedAssertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"></saml:EncryptedAssertion>`)
-				err := tp.Newresponse.Encrypt(assertion.(types.Element), publickey, ea)
+				err := tp.Newresponse.Encrypt(assertion.(types.Element), publickey)
 				if err != nil {
 					log.Fatal(err)
 				}
@@ -924,7 +934,7 @@ func ValidateSignature(md, xp *goxml.Xp) (err error) {
 		err = errors.New("no certificates found in metadata")
 		return
 	}
-	signatures := xp.Query(nil, "(/samlp:Response[ds:Signature] | /samlp:Response/saml:Assertion[ds:Signature] | /t:RequestSecurityTokenResponse//saml1:Assertion)")
+	signatures := xp.Query(nil, "(/samlp:Response[ds:Signature] | /samlp:Response/saml:Assertion[ds:Signature] | /t:RequestSecurityTokenResponse/t:RequestedSecurityToken/saml1:Assertion[ds:Signature])")
 	destination := xp.Query1(nil, "/samlp:Response/@Destination")
 
 	if len(signatures) == 0 {
@@ -1366,8 +1376,12 @@ func TestFullAttributeset(t *testing.T) {
 	res := browse(nil, nil)
 	if res != nil {
 		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
+		// check presence of cert
+		fmt.Printf("%t", len(res.Newresponse.Query1(nil, "//ds:KeyInfo/ds:X509Data/ds:X509Certificate")) > 0)
 	}
-	stdoutend(t, fullAttributeSet)
+	expected := fullAttributeSet
+	expected += `true`
+	stdoutend(t, expected)
 }
 
 func TestInternalAttributeSet(t *testing.T) {
@@ -1399,8 +1413,12 @@ func TestFullAttributesetWSFed(t *testing.T) {
 	res := browse(nil, &overwrites{"WSFedDoRequest": true})
 	if res != nil {
 		gosaml.AttributeCanonicalDump(os.Stdout, res.Newresponse)
+		// check presence of cert
+		fmt.Printf("%t", len(res.Newresponse.Query1(nil, "//ds:KeyInfo/ds:X509Data/ds:X509Certificate")) > 0)
 	}
-	stdoutend(t, fullAttributeSet)
+	expected := fullAttributeSet
+	expected += `true`
+	stdoutend(t, expected)
 }
 
 // TestFullAttributesetSP2 test that the full attributeset is delivered to the PHPH service
@@ -1834,16 +1852,26 @@ func ApplyXSW1(xp *goxml.Xp, m mod) {
 }
 
 func xTestSpeed(t *testing.T) {
-	const gorutines = 1000
-	const iterations = 10
+	if dobirk {
+		return
+	}
+
+	sps := testSPs.QueryMulti(nil, "//md:EntityDescriptor/@entityID")
+    //numofsps := len(sps)
+    PP(sps)
+
+	const gorutines =  40
+	const iterations = 1000
 	for i := 0; i < gorutines; i++ {
 		wg.Add(1)
 		go func(i int) {
 			for j := 0; j < iterations; j++ {
 				starttime := time.Now()
-				spmd, _ := internalMd.MDQ("https://metadata.wayf.dk/PHPh")
-				browse(nil, &overwrites{"Spmd": spmd})
-				log.Println(i, j, time.Since(starttime).Seconds())
+				sp := sps[j % 200]
+				spmd, _ := internalMd.MDQ(sp)
+	            overwrite := &overwrites{"Encryptresponse": rand.Intn(10) < 10, "Spmd": spmd}
+				browse(nil, overwrite)
+				log.Println(i, j, sp, time.Since(starttime).Seconds())
 				//runtime.GC()
 				//time.Sleep(200 * time.Millisecond)
 			}
