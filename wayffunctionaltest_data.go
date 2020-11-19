@@ -14,6 +14,7 @@ var (
 		"gn":                          {`Anton Banton <SamlRequest id="abc">abc</SamlRequest>`},
 		"mail":                        {"joe@example.com"},
 		"norEduPersonLIN":             {"123456789"},
+		"norEduPersonNIN":             {"2408586234"},
 		"organizationName":            {"This Is Not A Valid IdP!"},
 		"preferredLanguage":           {"da"},
 		"schacCountryOfCitizenship":   {"dk"},
@@ -102,6 +103,8 @@ mail urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     joe@example.com
 norEduPersonLIN urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     123456789
+norEduPersonNIN urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    2408586234
 organizationName urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     This Is Not A Valid IdP!
 preferredLanguage urn:oasis:names:tc:SAML:2.0:attrname-format:basic
@@ -171,6 +174,9 @@ sn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     "nbf": "1234",
     "norEduPersonLIN": [
         "123456789"
+    ],
+    "norEduPersonNIN": [
+        "2408586234"
     ],
     "organizationName": [
         "This Is Not A Valid IdP!"
