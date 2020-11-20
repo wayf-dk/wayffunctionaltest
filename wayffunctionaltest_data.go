@@ -21,6 +21,7 @@ var (
 		"schacHomeOrganizationType":   {"abc"},
 		"schacPersonalUniqueID":       {"urn:mace:terena.org:schac:personalUniqueID:dk:CPR:2408586234"},
 		"sn":                          {"Cantonsen"},
+		"isMemberOf":                  {"prefix.show", "show.suffix", "show.infix.show.infix.show", "just.at.lot.of.garbage"},
 	}
 
 	jwt2SAMLPreflight = `{
@@ -99,6 +100,10 @@ entryUUID urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     entryUUID
 gn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     Anton Banton &lt;SamlRequest id=&#34;abc&#34;&gt;abc&lt;/SamlRequest&gt;
+isMemberOf urn:oasis:names:tc:SAML:2.0:attrname-format:basic
+    prefix.show
+    show.infix.show.infix.show
+    show.suffix
 mail urn:oasis:names:tc:SAML:2.0:attrname-format:basic
     joe@example.com
 norEduPersonLIN urn:oasis:names:tc:SAML:2.0:attrname-format:basic
@@ -167,6 +172,11 @@ sn urn:oasis:names:tc:SAML:2.0:attrname-format:basic
         "Anton Banton \u003cSamlRequest id=\"abc\"\u003eabc\u003c/SamlRequest\u003e"
     ],
     "iat": "1234",
+    "isMemberOf": [
+        "prefix.show",
+        "show.suffix",
+        "show.infix.show.infix.show"
+    ],
     "iss": "https://wayf.wayf.dk",
     "mail": [
         "joe@example.com"
@@ -249,6 +259,11 @@ idpfeds
     HUBIDP
     WAYF
     oes.dk
+isMemberOf
+    just.at.lot.of.garbage
+    prefix.show
+    show.infix.show.infix.show
+    show.suffix
 mail
     joe@example.com
 modstlogonmethod
@@ -257,6 +272,8 @@ nemlogin
     false
 norEduPersonLIN
     123456789
+norEduPersonNIN
+    2408586234
 oioCvrNumberIdentifier
     12345678
 organizationName
@@ -285,7 +302,6 @@ spID
     https://wayfsp.wayf.dk
 spfeds
     WAYF
-    eduGAIN
     nemlog-in.dk
     qa.kmd.dk
     test.wayf.dk
