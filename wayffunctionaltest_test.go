@@ -1421,6 +1421,24 @@ func TestFullAttributesetWSFed(t *testing.T) {
 	stdoutend(t, expected)
 }
 
+// Test for error caused by missing schacPersonalUniqueID - incident 24112020
+func TestMissingSchacPersonalUniqueID(t *testing.T) {
+	stdoutstart()
+	m := modsset{"attributemods": mods{
+	    mod{`//saml:Attribute[@Name="schacPersonalUniqueID"]`, "", nil},
+	    mod{`//saml:Attribute[@Name="norEduPersonNIN"]`, "", nil},
+	    }}
+	res := browse(m, nil)
+	if res != nil {
+	    fmt.Printf("%t\n", len(res.Newresponse.Query1(nil, `//saml:Attribute[@Name="schacPersonalUniqueID"]`)) == 0)
+	    fmt.Printf("%t\n", len(res.Newresponse.Query1(nil, `//saml:Attribute[@Name="norEduPersonNIN"]`)) == 0)
+    }
+	expected := `true
+true
+`
+	stdoutend(t, expected)
+}
+
 // TestFullAttributesetSP2 test that the full attributeset is delivered to the PHPH service
 func TestScopingMd(t *testing.T) {
 	if dobirk || !*testmdq {
