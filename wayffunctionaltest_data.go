@@ -304,6 +304,7 @@ spfeds
     WAYF
     nemlog-in.dk
     qa.kmd.dk
+    test.nemlog-in.dk
     test.wayf.dk
 subsecuritydomain
     this.is.not.a.valid.idp
