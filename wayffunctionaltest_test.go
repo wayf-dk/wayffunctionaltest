@@ -90,15 +90,13 @@ type (
 	M       map[string]interface{} // just an alias
 )
 
-const lMDQ_METADATA_SCHEMA_PATH = "src/github.com/wayf-dk/goxml/schemas/ws-federation.xsd"
-
 var (
 	mdsources = map[string]map[string]string{
 		"prod": {
-			"hub":         "../hybrid-metadata.mddb",
-			"internal":    "../hybrid-metadata.mddb",
-			"externalIdP": "../hybrid-metadata.mddb",
-			"externalSP":  "../hybrid-metadata.mddb",
+			"hub":         "hybrid-metadata.mddb",
+			"internal":    "hybrid-metadata.mddb",
+			"externalIdP": "hybrid-metadata.mddb",
+			"externalSP":  "hybrid-metadata.mddb",
 		},
 	}
 
@@ -138,6 +136,7 @@ var (
 	wg     sync.WaitGroup
 	tr     *http.Transport
 	client *http.Client
+	path string
 )
 
 func TestMain(m *testing.M) {
@@ -147,20 +146,22 @@ func TestMain(m *testing.M) {
 		*hub = "wayf.wayf.dk"
 	}
 
+	path = Env("WAYF_PATH", "/opt/wayf/")
+
 	log.Printf("hub: %q backend: %q %s\n", *hub, *hubbe, *env)
 
 	gosaml.Config = gosaml.Conf{
-		CertPath: "signing/",
+		CertPath: path+"hybrid-config/signing/",
 	}
 
 	goxml.Algos[""] = goxml.Algos["sha256"]
 
 	gosaml.AuthnRequestCookie = &gosaml.Hm{180, sha256.New, []byte("abcd")}
 
-	hubMd = &lmdq.MDQ{Path: "file:" + mdsources[*env]["hub"] + "?mode=ro", Table: "HYBRID_HUB"}
-	internalMd = &lmdq.MDQ{Path: "file:" + mdsources[*env]["internal"] + "?mode=ro", Table: "HYBRID_INTERNAL"}
-	externalIdPMd = &lmdq.MDQ{Path: "file:" + mdsources[*env]["externalIdP"] + "?mode=ro", Table: "HYBRID_EXTERNAL_IDP"}
-	externalSPMd = &lmdq.MDQ{Path: "file:" + mdsources[*env]["externalSP"] + "?mode=ro", Table: "HYBRID_EXTERNAL_SP"}
+	hubMd = &lmdq.MDQ{Path: "file:" + path + mdsources[*env]["hub"] + "?mode=ro", Table: "HYBRID_HUB"}
+	internalMd = &lmdq.MDQ{Path: "file:" + path + mdsources[*env]["internal"] + "?mode=ro", Table: "HYBRID_INTERNAL"}
+	externalIdPMd = &lmdq.MDQ{Path: "file:" + path + mdsources[*env]["externalIdP"] + "?mode=ro", Table: "HYBRID_EXTERNAL_IDP"}
+	externalSPMd = &lmdq.MDQ{Path: "file:" + path + mdsources[*env]["externalSP"] + "?mode=ro", Table: "HYBRID_EXTERNAL_SP"}
 	for _, md := range []gosaml.Md{hubMd, internalMd, externalIdPMd, externalSPMd} {
 		err := md.(*lmdq.MDQ).Open()
 		if err != nil {
@@ -224,6 +225,13 @@ func TestMain(m *testing.M) {
 	r += m.Run()
 	os.Exit(r)
 
+}
+
+func Env(name, defaultvalue string) string {
+	if val, ok := os.LookupEnv(name); ok {
+		return val
+	}
+	return defaultvalue
 }
 
 func (h *slashFix) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -848,7 +856,7 @@ func (tp *Testparams) newresponse(u *url.URL, m mods) (err error) {
 
 	switch tp.FinalIdp {
 	case "https://login.test-nemlog-in.dk":
-		tp.Newresponse = goxml.NewXpFromFile("testdata/nemlogin.encryptedresponse.xml")
+		tp.Newresponse = goxml.NewXpFromFile(path+"testdata/nemlogin.encryptedresponse.xml")
 		tp.logxml(tp.Newresponse)
 
 		//  case "https://this.is.not.a.valid.idp":
@@ -1357,7 +1365,7 @@ func xTestNemLogin(t *testing.T) {
 	gosaml.TestTime, _ = time.Parse(gosaml.XsDateTime, "2017-10-09T20:48:49.385Z")
 
 	tp := Newtp(&overwrites{"Idp": "https://nemlogin.wayf.dk", "FinalIdp": "https://login.test-nemlog-in.dk"})
-	//    cert := ioutil.ReadFile("testdata/2481cb9e1194df81050c7d22b823540b9442112c.X509Certificate")
+	//    cert := ioutil.ReadFile(path+"testdata/2481cb9e1194df81050c7d22b823540b9442112c.X509Certificate")
 	//    tp.
 
 	res := browse(nil, tp)
