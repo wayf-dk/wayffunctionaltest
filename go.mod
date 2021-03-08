@@ -1,8 +1,9 @@
 module github.com/wayf-dk/wayffunctionaltest
 
-go 1.15
+go 1.16
 
 require (
+	x.config v0.0.0-00010101000000-000000000000
 	github.com/mattn/go-sqlite3 v1.14.0 // indirect
 	github.com/miekg/pkcs11 v1.0.3 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
@@ -13,6 +14,7 @@ require (
 )
 
 replace (
+	x.config => ../hybrid-config
 	github.com/wayf-dk/go-libxml2 => ../go-libxml2
 	github.com/wayf-dk/godiscoveryservice => ../godiscoveryservice
 	github.com/wayf-dk/goeleven => ../goeleven
