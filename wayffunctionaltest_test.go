@@ -131,11 +131,13 @@ func TestMain(m *testing.M) {
     config.Init()
 	if !*config.Test {
 		wayfhybrid.Main()
+	    finish := make(chan bool)
+	    <-finish
 	}
 
 	// never get to here .... unless we are testing
 
-	go func() { wayfhybrid.Main() }()
+	wayfhybrid.Main()
 
 	hubMd = &lmdq.MDQ{MdDb: config.Hub}
 	internalMd = &lmdq.MDQ{MdDb: config.Internal}
