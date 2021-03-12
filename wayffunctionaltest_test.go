@@ -128,6 +128,7 @@ var (
 )
 
 func TestMain(m *testing.M) {
+    config.Init()
 	if !*config.Test {
 		wayfhybrid.Main()
 	}
