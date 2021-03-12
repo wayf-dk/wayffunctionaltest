@@ -2,25 +2,20 @@ package wayffunctionaltest
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"crypto/tls"
+	_ "embed"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
-	"github.com/wayf-dk/go-libxml2/types"
-	"github.com/wayf-dk/gosaml"
-	"github.com/wayf-dk/goxml"
-	"github.com/wayf-dk/lmdq"
 	"io"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
-	"math/rand"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -29,6 +24,13 @@ import (
 	"testing"
 	"text/template"
 	"time"
+
+	"github.com/wayf-dk/go-libxml2/types"
+	"github.com/wayf-dk/gosaml"
+	"github.com/wayf-dk/goxml"
+	"github.com/wayf-dk/lmdq"
+	"github.com/wayf-dk/wayfhybrid"
+	"x.config"
 )
 
 const (
@@ -50,11 +52,10 @@ type (
 	}
 
 	Testparams struct {
-		Idp, SP, BirkIdp, FinalIdp, Hybrid, RelayState     string
-		Spmd, Idpmd, Hubidpmd, Hubspmd, Birkmd, Firstidpmd *goxml.Xp
-		Cookiejar                                          map[string]map[string]*http.Cookie
-		Destination                                        *url.URL
-		//      Resolv                                             map[string]string
+		Idp, SP, BirkIdp, FinalIdp, Hybrid, RelayState           string
+		Spmd, Idpmd, Hubidpmd, Hubspmd, Birkmd, Firstidpmd       *goxml.Xp
+		Cookiejar                                                map[string]map[string]*http.Cookie
+		Destination                                              *url.URL
 		Method                                                   string
 		Initialrequest, FinalRequest                             *goxml.Xp
 		Newresponse                                              *goxml.Xp
@@ -68,7 +69,6 @@ type (
 		Hashalgorithm                                            string
 		Attributestmt                                            *goxml.Xp
 		Hub, Birk, ConsentGiven                                  bool
-		Env                                                      string
 		ElementsToSign                                           []string
 		Jwt2SAML, SAML2jwt, Jwt2SAMLResponse                     string
 		Jwt2SAMLDoRequest, SAML2jwtDoRequest, SAML2jwtDoResponse bool
@@ -90,45 +90,22 @@ type (
 	M       map[string]interface{} // just an alias
 )
 
-var (
-	mdsources = map[string]map[string]string{
-		"prod": {
-			"hub":         "hybrid-metadata.mddb",
-			"internal":    "hybrid-metadata.mddb",
-			"externalIdP": "hybrid-metadata.mddb",
-			"externalSP":  "hybrid-metadata.mddb",
-		},
-	}
+const (
+	hub         = "wayf.wayf.dk:443"
+	insecureTLS = true
+)
 
+var (
 	hubMd, internalMd, externalIdPMd, externalSPMd *lmdq.MDQ
 	mdMap                                          map[string]*lmdq.MDQ
 	mdqMap                                         map[string]map[string]*goxml.Xp
-
-	do           = flag.String("do", "hub", "Which tests to run")
-	hub          = flag.String("hub", "wayf.wayf.dk", "the hostname for the hub server to be tested")
-	hubbe        = flag.String("hubbe", "", "the hub backend server")
-	ds           = flag.String("ds", "ds.wayf.dk", "the discovery server")
-	testmdq      = flag.Bool("testmdq", false, "test with embedded mdq server")
-	trace        = flag.Bool("trace", false, "trace the request/response flow")
-	logxml       = flag.Bool("logxml", false, "dump requests/responses in xml")
-	env          = flag.String("env", "prod", "which environment to test dev, hybrid, prod - if not dev")
-	testcertpath = flag.String("testcertpath", "/etc/ssl/wayf/certs/wildcard.test.lan.pem", "path to the testing cert")
-	insecureTLS  = true
 
 	testSPs *goxml.Xp
 
 	dohub, dobirk bool
 
-	old, r, w      *os.File
-	outC           = make(chan string)
-	templatevalues = map[string]map[string]string{
-		"prod": {
-			"eptid":   "WAYF-DK-c52a92a5467ae336a2be77cd06719c645e72dfd2",
-			"pnameid": "WAYF-DK-c52a92a5467ae336a2be77cd06719c645e72dfd2",
-			"iss":     "123",
-			"exp":     "456",
-		},
-	}
+	old, r, w *os.File
+	outC      = make(chan string)
 
 	stdAttributesTxt, stdAttributesJson string
 
@@ -136,64 +113,68 @@ var (
 	wg     sync.WaitGroup
 	tr     *http.Transport
 	client *http.Client
-	path string
+
+	templatevalues = map[string]string{
+		"eptid":   "WAYF-DK-c52a92a5467ae336a2be77cd06719c645e72dfd2",
+		"pnameid": "WAYF-DK-c52a92a5467ae336a2be77cd06719c645e72dfd2",
+		"iss":     "123",
+		"exp":     "456",
+	}
+
+	tlog = log.New(os.Stderr, "", log.LstdFlags)
+
+	//go:embed testdata/nemlogin.encryptedresponse.xml
+	nemloginEncryptedresponse []byte
 )
 
 func TestMain(m *testing.M) {
-	flag.Parse()
-	if !strings.ContainsAny(*hub, ".") {
-		*hubbe = *hub
-		*hub = "wayf.wayf.dk"
+	if !*config.Test {
+		wayfhybrid.Main()
 	}
 
-	path = Env("WAYF_PATH", "/opt/wayf/")
+	// never get to here .... unless we are testing
 
-	log.Printf("hub: %q backend: %q %s\n", *hub, *hubbe, *env)
+	go func() { wayfhybrid.Main() }()
 
-	gosaml.AuthnRequestCookie = &gosaml.Hm{180, sha256.New, []byte("abcd")}
+	hubMd = &lmdq.MDQ{MdDb: config.Hub}
+	internalMd = &lmdq.MDQ{MdDb: config.Internal}
+	externalIdPMd = &lmdq.MDQ{MdDb: config.ExternalIDP}
+	externalSPMd = &lmdq.MDQ{MdDb: config.ExternalSP}
 
-	hubMd = &lmdq.MDQ{Path: "file:" + path + mdsources[*env]["hub"] + "?mode=ro", Table: "HYBRID_HUB"}
-	internalMd = &lmdq.MDQ{Path: "file:" + path + mdsources[*env]["internal"] + "?mode=ro", Table: "HYBRID_INTERNAL"}
-	externalIdPMd = &lmdq.MDQ{Path: "file:" + path + mdsources[*env]["externalIdP"] + "?mode=ro", Table: "HYBRID_EXTERNAL_IDP"}
-	externalSPMd = &lmdq.MDQ{Path: "file:" + path + mdsources[*env]["externalSP"] + "?mode=ro", Table: "HYBRID_EXTERNAL_SP"}
-	for _, md := range []gosaml.Md{hubMd, internalMd, externalIdPMd, externalSPMd} {
-		err := md.(*lmdq.MDQ).Open()
+	mdMap = map[string]*lmdq.MDQ{"hub": hubMd, "int": internalMd, "idp": externalIdPMd, "sp": externalSPMd}
+	for _, md := range mdMap {
+		md.Mdq = "" // remove if present, we have to go to the actual db
+		err := md.Open()
 		if err != nil {
 			panic(err)
 		}
 	}
 
-	mdMap = map[string]*lmdq.MDQ{"hub": hubMd, "int": internalMd, "idp": externalIdPMd, "sp": externalSPMd}
+	/*
+	   Internal MDQ server for being able to modify md for the hub on the fly ...
+	*/
+	httpMux := http.NewServeMux()
+	httpMux.Handle("/MDQ/", appHandler(mdq))
 
-	if *testmdq {
-		/*
-		   Internal MDQ server for being able to modify md for the hub on the fly ...
-		*/
-		httpMux := http.NewServeMux()
-		httpMux.Handle("/MDQ/", appHandler(mdq))
+	go func() {
+		tlog.Println("listening on ", config.MdqIntf)
+		err := http.ListenAndServe(config.MdqIntf, &slashFix{httpMux})
+		if err != nil {
+			tlog.Printf("main(): %s\n", err)
+		}
+	}()
 
-		go func() {
-			intf := "127.0.0.1:9999"
-			log.Println("listening on ", intf)
-			err := http.ListenAndServe(intf, &slashFix{httpMux})
-			if err != nil {
-				log.Printf("main(): %s\n", err)
-			}
-		}()
-	}
 	// need non-birk, non-request.validate and non-IDPList SPs for testing ....
 	var numberOfTestSPs int
 	testSPs, numberOfTestSPs, _ = internalMd.MDQFilter("/md:EntityDescriptor/md:Extensions/wayf:wayf[wayf:federation='WAYF' and not(wayf:IDPList)]/../../md:SPSSODescriptor/..")
 	if numberOfTestSPs == 0 {
-		log.Fatal("No testSP candidates")
+		tlog.Fatal("No testSP candidates")
 	}
-
-	resolv = map[string]string{"wayf.wayf.dk:443": *hub + ":443", "birk.wayf.dk:443": *hub + ":443", "krib.wayf.dk:443": *hub + ":443", "ds.wayf.dk:443": *ds + ":443"}
 
 	tr = &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		Dial: func(network, addr string) (net.Conn, error) {
-			return net.DialTimeout(network, resolv[addr], 3*time.Second)
+			return net.DialTimeout(network, hub, 3*time.Second)
 		},
 		DisableCompression: true,
 		/*
@@ -208,24 +189,13 @@ func TestMain(m *testing.M) {
 		CheckRedirect: func(req *http.Request, via []*http.Request) error { return http.ErrUseLastResponse },
 	}
 
-	*do = "hub"
 	dohub = true
 	r := m.Run()
-	//os.Exit(r)
 
-	*do = "birk"
 	dohub = false
 	dobirk = true
 	r += m.Run()
 	os.Exit(r)
-
-}
-
-func Env(name, defaultvalue string) string {
-	if val, ok := os.LookupEnv(name); ok {
-		return val
-	}
-	return defaultvalue
 }
 
 func (h *slashFix) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -234,7 +204,7 @@ func (h *slashFix) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (fn appHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	//log.Printf("in: %s %s %s %+v", r.RemoteAddr, r.Method, r.Host, r.URL)
+	//tlog.Printf("in: %s %s %s %+v", r.RemoteAddr, r.Method, r.Host, r.URL)
 	//starttime := time.Now()
 	err := fn(w, r)
 
@@ -249,7 +219,7 @@ func (fn appHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		err = fmt.Errorf("OK")
 	}
 
-	//log.Printf("%s %s %s %+v %1.3f %d %s", r.RemoteAddr, r.Method, r.Host, r.URL, time.Since(starttime).Seconds(), status, err)
+	//tlog.Printf("%s %s %s %+v %1.3f %d %s", r.RemoteAddr, r.Method, r.Host, r.URL, time.Since(starttime).Seconds(), status, err)
 }
 
 // MDQWeb - thin MDQ web layer on top of lmdq
@@ -271,7 +241,7 @@ func mdq(w http.ResponseWriter, r *http.Request) (err error) {
 	w.Header().Set("Content-Type", "application/samlmetadata+xml")
 	w.Header().Set("Content-Length", strconv.Itoa(len(xml)))
 	w.Write([]byte(xml))
-	//log.Print(xp.PP())
+	//tlog.Print(xp.PP())
 	return
 }
 
@@ -286,7 +256,7 @@ func (tp *Testparams) logxml(x interface{}) {
 		case *goxml.Xp:
 			xml = i
 		}
-		log.Println(xml.PP())
+		tlog.Println(xml.PP())
 	}
 }
 
@@ -311,7 +281,7 @@ func stdoutend(t *testing.T, expected string, re ...string) {
 	got := <-outC
 
 	tmpl := template.Must(template.New("expected").Parse(expected))
-	_ = tmpl.Execute(&b, templatevalues[*env])
+	_ = tmpl.Execute(&b, templatevalues)
 	expected = b.String()
 	if expected == "" {
 		//      t.Errorf("unexpected empty expected string\n")
@@ -332,10 +302,10 @@ func diff(str1, str2 string) (str string) {
 	slice1 := strings.Split(str1, "\n")
 	slice2 := strings.Split(str2, "\n")
 	for i, line1 := range slice1 {
-	    line2 := ""
-	    if len(slice2) > i {
-	        line2 = slice2[i]
-	    }
+		line2 := ""
+		if len(slice2) > i {
+			line2 = slice2[i]
+		}
 		if line1 != line2 {
 			return fmt.Sprintf("\ndiff:\n%s\n%s\n", line1, line2)
 		}
@@ -347,14 +317,13 @@ func Newtp(overwrite *overwrites) (tp *Testparams) {
 	tp = new(Testparams)
 	tp.Privatekeypw = os.Getenv("PW")
 	if tp.Privatekeypw == "" {
-		log.Fatal("no PW environment var")
+		tlog.Fatal("no PW environment var")
 	}
 	tp.Method = "GET"
-	tp.Env = *env
 	tp.Hub = dohub
 	tp.Birk = dobirk
-	tp.Trace = *trace
-	tp.Logxml = *logxml
+	tp.Trace = *config.Trace
+	tp.Logxml = *config.Logxml
 	tp.Hashalgorithm = "sha256"
 	tp.Hybrid = "wayf.wayf.dk"
 	tp.ElementsToSign = []string{"saml:Assertion[1]"}
@@ -366,7 +335,7 @@ func Newtp(overwrite *overwrites) (tp *Testparams) {
 
 	tp.Cookiejar = make(map[string]map[string]*http.Cookie)
 	tp.Cookiejar["wayf.dk"] = make(map[string]*http.Cookie)
-	tp.Cookiejar["wayf.dk"]["wayfid"] = &http.Cookie{Name: "wayfid", Value: *hubbe}
+	//	tp.Cookiejar["wayf.dk"]["wayfid"] = &http.Cookie{Name: "wayfid", Value: *hubbe}
 	//	tp.Cookiejar["wayf.dk"]["debug"] = &http.Cookie{Name: "debug", Value: "trace=1"}
 
 	if overwrite != nil { // overwrite default values with test specific values while it still matters
@@ -375,7 +344,7 @@ func Newtp(overwrite *overwrites) (tp *Testparams) {
 		}
 	}
 
-    root := tp.Spmd.DocGetRootElement()
+	root := tp.Spmd.DocGetRootElement()
 	tp.Spmd = goxml.NewXpFromNode(root) // ordinary CpXp shares the DOM, and thats what we want to be able to modify
 
 	tp.FinalIdp = tp.Idp
@@ -388,10 +357,10 @@ func Newtp(overwrite *overwrites) (tp *Testparams) {
 	}
 	tp.Birkmd, _ = externalIdPMd.MDQ(tp.Idp)
 
-	switch *do {
-	case "hub":
+	switch dohub {
+	case true:
 		tp.Firstidpmd = tp.Hubidpmd
-	case "birk":
+	case false:
 		tp.Firstidpmd = tp.Birkmd
 	}
 	tp.Attributestmt = newAttributeStatement(testAttributes)
@@ -549,23 +518,21 @@ func initialRequest(m modsset, overwrite interface{}) (tp *Testparams, u *url.UR
 		applyModsQuery(u, m["querymods"])
 		applyModsCookie(tp, m["cookiemods"])
 	}
-	if *testmdq {
-        mdqMap = map[string]map[string]*goxml.Xp{"int": {}, "idp": {}}
-    		if len(m["mdspmods"]) > 0 {
-			ApplyModsXp(tp.Spmd, m["mdspmods"])
-			mdqMap["int"][tp.SP] = tp.Spmd
-			mdqMap["int"][gosaml.IDHash(tp.SP)] = tp.Spmd
-		}
-		if len(m["mdidpmods"]) > 0 {
-			ApplyModsXp(tp.Idpmd, m["mdidpmods"])
-			mdqMap["int"][tp.Idp] = tp.Idpmd
-			mdqMap["int"][gosaml.IDHash(tp.Idp)] = tp.Idpmd
-		}
-		if len(m["mdexternalidpmods"]) > 0 {
-			ApplyModsXp(tp.Birkmd, m["mdexternalidpmods"])
-			mdqMap["idp"][tp.Idp] = tp.Birkmd
-			mdqMap["idp"][gosaml.IDHash(tp.Idp)] = tp.Birkmd
-		}
+	mdqMap = map[string]map[string]*goxml.Xp{"int": {}, "idp": {}}
+	if len(m["mdspmods"]) > 0 {
+		ApplyModsXp(tp.Spmd, m["mdspmods"])
+		mdqMap["int"][tp.SP] = tp.Spmd
+		mdqMap["int"][gosaml.IDHash(tp.SP)] = tp.Spmd
+	}
+	if len(m["mdidpmods"]) > 0 {
+		ApplyModsXp(tp.Idpmd, m["mdidpmods"])
+		mdqMap["int"][tp.Idp] = tp.Idpmd
+		mdqMap["int"][gosaml.IDHash(tp.Idp)] = tp.Idpmd
+	}
+	if len(m["mdexternalidpmods"]) > 0 {
+		ApplyModsXp(tp.Birkmd, m["mdexternalidpmods"])
+		mdqMap["idp"][tp.Idp] = tp.Birkmd
+		mdqMap["idp"][gosaml.IDHash(tp.Idp)] = tp.Birkmd
 	}
 	return
 }
@@ -585,10 +552,10 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 		tp.logxml(u)
 		tp.Resp, tp.Responsebody, samlresponse, tp.Err = tp.sendRequest(u, body)
 		if tp.Err != nil {
-			//log.Println(tp.Err)
+			//tlog.Println(tp.Err)
 			fmt.Println(tp.Err)
 			return nil
-			//log.Panic(tp.Err)
+			//tlog.Panic(tp.Err)
 		}
 		if u, _ = tp.Resp.Location(); u != nil { // Redirecting - we don't care about the StatusCode - Location means redirect
 			query := u.Query()
@@ -637,7 +604,7 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 		if tp.Err != nil {
 			fmt.Println(tp.Err)
 			return nil
-			//log.Panic(tp.Err)
+			//tlog.Panic(tp.Err)
 		}
 		if tp.Resp.StatusCode == 500 {
 			break
@@ -670,7 +637,7 @@ func browse(m modsset, overwrite interface{}) (tp *Testparams) {
 	}
 
 	if tp.Trace {
-		log.Println()
+		tlog.Println()
 	}
 	tp.Resp = nil // can't jsonify tp.Resp
 	return
@@ -704,7 +671,7 @@ func browseSLO(tp *Testparams) {
 		if tp.Err != nil {
 			fmt.Println(tp.Err)
 			return
-			//log.Panic(tp.Err)
+			//tlog.Panic(tp.Err)
 		}
 		tp.logxml(saml)
 		dest := saml.Query1(nil, "@Destination")
@@ -752,8 +719,8 @@ func (tp *Testparams) sendRequest(url *url.URL, body string) (resp *http.Respons
 		// we need to do the redirect ourselves so a self inflicted redirect "error" is not an error
 		// debug.PrintStack()
 		if strings.HasSuffix(err.Error(), "connect: connection refused") {
-		    PP(err)
-		    log.Panic(err)
+			PP(err)
+			tlog.Panic(err)
 		}
 		return nil, nil, nil, err
 	}
@@ -786,7 +753,7 @@ func (tp *Testparams) sendRequest(url *url.URL, body string) (resp *http.Respons
 
 	if tp.Trace {
 		loc = tp.Destination.Host + tp.Destination.Path
-		log.Printf("%-4s %-70s %s %-15s %s\n", req.Method, host+req.URL.Path, resp.Proto, resp.Status, loc)
+		tlog.Printf("%-4s %-70s %s %-15s %s\n", req.Method, host+req.URL.Path, resp.Proto, resp.Status, loc)
 	}
 
 	// we need to nullify the damn redirec-not-allowed error from above
@@ -850,7 +817,7 @@ func (tp *Testparams) newresponse(u *url.URL, m mods) (err error) {
 
 	switch tp.FinalIdp {
 	case "https://login.test-nemlog-in.dk":
-		tp.Newresponse = goxml.NewXpFromFile(path+"testdata/nemlogin.encryptedresponse.xml")
+		tp.Newresponse = goxml.NewXp(nemloginEncryptedresponse)
 		tp.logxml(tp.Newresponse)
 
 		//  case "https://this.is.not.a.valid.idp":
@@ -902,7 +869,7 @@ func (tp *Testparams) newresponse(u *url.URL, m mods) (err error) {
 				err := tp.Newresponse.Sign(element.(types.Element), before.(types.Element), []byte(tp.Privatekey), []byte(tp.Privatekeypw), tp.Certificate, tp.Hashalgorithm)
 				if err != nil {
 					//              q.Q("Newresponse", err.(goxml.Werror).Stack(2))
-					log.Fatal(err)
+					tlog.Fatal(err)
 				}
 			}
 
@@ -919,7 +886,7 @@ func (tp *Testparams) newresponse(u *url.URL, m mods) (err error) {
 
 				err := tp.Newresponse.Encrypt(assertion.(types.Element), publickey)
 				if err != nil {
-					log.Fatal(err)
+					tlog.Fatal(err)
 				}
 				tp.Encryptresponse = false // for now only possible for idp -> hub
 
@@ -957,9 +924,9 @@ func TestEduGAINeptid(t *testing.T) {
 	stdoutstart()
 	eID := testSPs.Query1(nil, "//wayf:wayf[wayf:feds='eduGAIN' and wayf:AttributeNameFormat='urn:oasis:names:tc:SAML:2.0:attrname-format:uri']/../../md:SPSSODescriptor[md:AttributeConsumingService/md:RequestedAttribute/@Name='urn:oid:1.3.6.1.4.1.5923.1.1.1.10']/../@entityID")
 	spMd, _ := internalMd.MDQ(eID)
-    if spMd == nil {
-        log.Fatalln("No SP found for testing eduGAIN eptid format: ")
-    }
+	if spMd == nil {
+		tlog.Fatalln("No SP found for testing eduGAIN eptid format: ")
+	}
 	res := browse(nil, &overwrites{"Spmd": spMd})
 	if res != nil {
 		fmt.Print(res.Newresponse.PPE(res.Newresponse.Query(nil, `//saml:Attribute[@Name="urn:oid:1.3.6.1.4.1.5923.1.1.1.10"]`)[0]))
@@ -997,7 +964,7 @@ logout wayfsp2.wayf.dk
 }
 
 func TestSPSLONoSLOSupport(t *testing.T) {
-	if dobirk || !*testmdq {
+	if dobirk {
 		return
 	}
 	stdoutstart()
@@ -1010,7 +977,7 @@ func TestSPSLONoSLOSupport(t *testing.T) {
 	idp := "https://this.is.not.a.valid.external.idp"
 	res = browse(nil, &overwrites{"Spmd": spMd, "Idp": idp, "Cookiejar": res.Cookiejar})
 
-    // browseSLO does currently not support modsets or overwrites så set the mdqMap entry for the modified sp here
+	// browseSLO does currently not support modsets or overwrites så set the mdqMap entry for the modified sp here
 	mdqMap["int"][entityID] = spMd
 	mdqMap["int"][gosaml.IDHash(entityID)] = spMd
 
@@ -1064,7 +1031,7 @@ func TestAttributeNameFormat(t *testing.T) {
 		eID := testSPs.Query1(nil, attrnameformatqueries[attrname])
 		md, _ := internalMd.MDQ(eID)
 		if md == nil {
-			log.Fatalln("No SP found for testing attributenameformat: ", attrname)
+			tlog.Fatalln("No SP found for testing attributenameformat: ", attrname)
 		}
 		tp := browse(nil, &overwrites{"Spmd": md, "SAML2jwtDoRequest": false})
 		if tp != nil {
@@ -1125,23 +1092,21 @@ func TestSpecialsubdomain(t *testing.T) {
 	}
 	expected := `["cause:security domain 'sub.this.is.not.a.valid.idp' does not match any scopes"]
 `
-    if *testmdq {
-        m = modsset{
-            "presigningresponsemods": mods{
-                mod{"./saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name=\"eduPersonPrincipalName\"]/saml:AttributeValue", "joe@sub.ku.dk", nil},
-                mod{"./saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name=\"eduPersonScopedAffiliation\"]/saml:AttributeValue", "", nil},
-                mod{"./saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name=\"eduPersonScopedAffiliation\"]/saml:AttributeValue", "student@ku.dk", nil}},
-            "mdexternalidpmods": mods{
-                mod{"./md:IDPSSODescriptor/md:Extensions/shibmd:Scope", "sub.ku.dk", nil}},
-        }
-        res = browse(m, nil)
-        if res != nil {
-            epsa := res.Newresponse.Query1(nil, `//saml:Attribute[@Name="eduPersonScopedAffiliation"]/saml:AttributeValue`)
-            fmt.Println(epsa)
-        }
-        expected += `student@ku.dk
+	m = modsset{
+		"presigningresponsemods": mods{
+			mod{"./saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name=\"eduPersonPrincipalName\"]/saml:AttributeValue", "joe@sub.ku.dk", nil},
+			mod{"./saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name=\"eduPersonScopedAffiliation\"]/saml:AttributeValue", "", nil},
+			mod{"./saml:Assertion/saml:AttributeStatement/saml:Attribute[@Name=\"eduPersonScopedAffiliation\"]/saml:AttributeValue", "student@ku.dk", nil}},
+		"mdexternalidpmods": mods{
+			mod{"./md:IDPSSODescriptor/md:Extensions/shibmd:Scope", "sub.ku.dk", nil}},
+	}
+	res = browse(m, nil)
+	if res != nil {
+		epsa := res.Newresponse.Query1(nil, `//saml:Attribute[@Name="eduPersonScopedAffiliation"]/saml:AttributeValue`)
+		fmt.Println(epsa)
+	}
+	expected += `student@ku.dk
 `
-    }
 	stdoutend(t, expected)
 }
 
@@ -1293,7 +1258,7 @@ func TestPersistentNameID(t *testing.T) {
 	entitymd, _ := internalMd.MDQ(entityID)
 	if entitymd == nil {
 		return
-		//log.Fatalln("no SP found for testing TestPersistentNameID")
+		//tlog.Fatalln("no SP found for testing TestPersistentNameID")
 	}
 
 	tp := browse(nil, &overwrites{"Spmd": entitymd})
@@ -1347,9 +1312,6 @@ func TestUnspecifiedNameID(t *testing.T) {
 
 func xTestNemLogin(t *testing.T) {
 	var expected string
-	if *env != "dev" {
-		return
-	}
 
 	stdoutstart()
 	// common res for hub and birk
@@ -1387,7 +1349,7 @@ func TestFullAttributeset(t *testing.T) {
 }
 
 func TestInternalAttributeSet(t *testing.T) {
-	if dobirk || !*testmdq {
+	if dobirk {
 		return
 	}
 	stdoutstart()
@@ -1427,14 +1389,14 @@ func TestFullAttributesetWSFed(t *testing.T) {
 func TestMissingSchacPersonalUniqueID(t *testing.T) {
 	stdoutstart()
 	m := modsset{"attributemods": mods{
-	    mod{`//saml:Attribute[@Name="schacPersonalUniqueID"]`, "", nil},
-	    mod{`//saml:Attribute[@Name="norEduPersonNIN"]`, "", nil},
-	    }}
+		mod{`//saml:Attribute[@Name="schacPersonalUniqueID"]`, "", nil},
+		mod{`//saml:Attribute[@Name="norEduPersonNIN"]`, "", nil},
+	}}
 	res := browse(m, nil)
 	if res != nil {
-	    fmt.Printf("%t\n", len(res.Newresponse.Query1(nil, `//saml:Attribute[@Name="schacPersonalUniqueID"]`)) == 0)
-	    fmt.Printf("%t\n", len(res.Newresponse.Query1(nil, `//saml:Attribute[@Name="norEduPersonNIN"]`)) == 0)
-    }
+		fmt.Printf("%t\n", len(res.Newresponse.Query1(nil, `//saml:Attribute[@Name="schacPersonalUniqueID"]`)) == 0)
+		fmt.Printf("%t\n", len(res.Newresponse.Query1(nil, `//saml:Attribute[@Name="norEduPersonNIN"]`)) == 0)
+	}
 	expected := `true
 true
 `
@@ -1443,7 +1405,7 @@ true
 
 // TestFullAttributesetSP2 test that the full attributeset is delivered to the PHPH service
 func TestScopingMd(t *testing.T) {
-	if dobirk || !*testmdq {
+	if dobirk {
 		return
 	}
 	stdoutstart()
@@ -1457,7 +1419,7 @@ func TestScopingMd(t *testing.T) {
 }
 
 func TestScopingMdByDomain(t *testing.T) {
-	if dobirk || !*testmdq {
+	if dobirk {
 		return
 	}
 	stdoutstart()
@@ -1831,12 +1793,12 @@ func TestUnknownIDPError(t *testing.T) {
 	stdoutstart()
 	var m modsset
 	var expected string
-	switch *do {
-	case "hub":
+	switch dohub {
+	case true:
 		m = modsset{"requestmods": mods{mod{"./samlp:Scoping/samlp:IDPList/samlp:IDPEntry/@ProviderID", "https://wayf.wayf.dk/unknownentity", nil}}}
 		expected = `["cause:Metadata not found","err:Metadata not found","key:https://wayf.wayf.dk/unknownentity","table:idp"]
 `
-	case "birk":
+	case false:
 		m = modsset{"requestmods": mods{mod{"./@Destination", "https://birk.wayf.dk/birk.php/wayf.wayf.dk/unknownentity", nil}}}
 		expected = `["cause:Metadata not found","err:Metadata not found","key:https://birk.wayf.dk/birk.php/wayf.wayf.dk/unknownentity","table:idp"]
 `
@@ -1856,19 +1818,19 @@ func TestXSW1(t *testing.T) {
 
 // from https://github.com/SAMLRaider/SAMLRaider/blob/master/src/main/java/helpers/XSWHelpers.java
 func ApplyXSW1(xp *goxml.Xp, m mod) {
-	//log.Println(xp.PP())
+	//tlog.Println(xp.PP())
 	assertion := xp.Query(nil, "/samlp:Response[1]/saml:Assertion[1]")[0]
 	clonedAssertion := xp.CopyNode(assertion, 1)
 	signature := xp.Query(clonedAssertion, "./ds:Signature")[0]
-	//log.Println(goxml.NewXpFromNode(signature).PP())
+	//tlog.Println(goxml.NewXpFromNode(signature).PP())
 	parent, _ := signature.(types.Element).ParentNode()
 	parent.RemoveChild(signature)
 	defer signature.Free()
-	//log.Println(goxml.NewXpFromNode(clonedAssertion).PP())
+	//tlog.Println(goxml.NewXpFromNode(clonedAssertion).PP())
 	newSignature := xp.Query(assertion, "ds:Signature[1]")[0]
 	newSignature.AddChild(clonedAssertion)
 	assertion.(types.Element).SetAttribute("ID", "_evil_response_ID")
-	//log.Println(xp.PP())
+	//tlog.Println(xp.PP())
 }
 
 func xTestSpeed(t *testing.T) {
@@ -1877,21 +1839,21 @@ func xTestSpeed(t *testing.T) {
 	}
 
 	sps := testSPs.QueryMulti(nil, "//md:EntityDescriptor/@entityID")
-    //numofsps := len(sps)
-    PP(sps)
+	//numofsps := len(sps)
+	PP(sps)
 
-	const gorutines =  40
+	const gorutines = 40
 	const iterations = 1000
 	for i := 0; i < gorutines; i++ {
 		wg.Add(1)
 		go func(i int) {
 			for j := 0; j < iterations; j++ {
 				starttime := time.Now()
-				sp := sps[j % 200]
+				sp := sps[j%200]
 				spmd, _ := internalMd.MDQ(sp)
-	            overwrite := &overwrites{"Encryptresponse": rand.Intn(10) < 10, "Spmd": spmd}
+				overwrite := &overwrites{"Encryptresponse": rand.Intn(10) < 10, "Spmd": spmd}
 				browse(nil, overwrite)
-				log.Println(i, j, sp, time.Since(starttime).Seconds())
+				tlog.Println(i, j, sp, time.Since(starttime).Seconds())
 				//runtime.GC()
 				//time.Sleep(200 * time.Millisecond)
 			}
